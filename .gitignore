@@ -1,0 +1,6 @@
+.env
+roast_count.json
+roast_log.json
+economy.json
+__pycache__/
+*.pyc
