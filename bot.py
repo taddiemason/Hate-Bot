@@ -691,10 +691,22 @@ def _get_random_member_name() -> str:
 def get_stocks():
     eco = load_economy()
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    return eco.get("stocks", {
+    default = {
         TARGET_NAME.lower(): {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now},
         "users": {},
-    })
+    }
+    stocks = eco.get("stocks", default)
+    tkey = TARGET_NAME.lower()
+    if tkey not in stocks:
+        # Migrate old target key to new target name
+        old_key = next((k for k in stocks if k != "users"), None)
+        if old_key:
+            stocks[tkey] = stocks.pop(old_key)
+        else:
+            stocks[tkey] = {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now}
+        eco["stocks"] = stocks
+        save_economy(eco)
+    return stocks
 
 
 def save_stocks(stocks):
@@ -704,10 +716,10 @@ def save_stocks(stocks):
 
 
 def get_display_prices(stocks):
-    """Apply time-based drift without persisting — Donovan recovers slowly, users decay slowly."""
+    """Apply time-based drift without persisting — target recovers slowly, users decay slowly."""
     now = datetime.datetime.now(datetime.timezone.utc)
 
-    don = stocks[TARGET_NAME.lower()]
+    don = stocks.get(TARGET_NAME.lower(), {"price": DONOVAN_STOCK_BASE, "last_updated": now.isoformat()})
     hours = (now - datetime.datetime.fromisoformat(don["last_updated"])).total_seconds() / 3600
     don_price = min(don["price"] + hours * 0.25, DONOVAN_STOCK_BASE)
 
@@ -723,12 +735,19 @@ def update_stocks_on_roast(user_id):
     eco = load_economy()
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    stocks = eco.get("stocks", {
+    default_stocks = {
         TARGET_NAME.lower(): {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now},
         "users": {},
-    })
-    drop = round(random.uniform(1.5, 3.5), 2)
+    }
+    stocks = eco.get("stocks", default_stocks)
     _tkey = TARGET_NAME.lower()
+    if _tkey not in stocks:
+        old_key = next((k for k in stocks if k != "users"), None)
+        if old_key:
+            stocks[_tkey] = stocks.pop(old_key)
+        else:
+            stocks[_tkey] = {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now}
+    drop = round(random.uniform(1.5, 3.5), 2)
     stocks[_tkey]["prev_price"] = stocks[_tkey]["price"]
     stocks[_tkey]["price"] = max(round(stocks[_tkey]["price"] - drop, 2), 0.01)
     stocks[_tkey]["last_updated"] = now
