@@ -111,9 +111,13 @@ fi
 echo
 info "Setting up virtual environment..."
 
-if [[ -d venv ]]; then
+if [[ -f venv/bin/activate ]]; then
     ok "venv already exists, skipping creation."
 else
+    if [[ -d venv ]]; then
+        warn "venv/ directory exists but is incomplete — recreating it."
+        rm -rf venv
+    fi
     "$PYTHON" -m venv venv
     ok "Created venv/"
 fi
