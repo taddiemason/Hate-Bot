@@ -107,6 +107,30 @@ if [[ -z "$PYTHON" ]]; then
     exit 1
 fi
 
+# ── System dependencies ───────────────────────────────────────────────────────
+echo
+info "Checking system dependencies..."
+
+if command -v ffmpeg &>/dev/null; then
+    ok "ffmpeg found ($(ffmpeg -version 2>&1 | head -1 | cut -d' ' -f3))"
+else
+    warn "ffmpeg not found — required for voice/TTS."
+    printf "Install it now? ${DIM}[Y/n]${RESET}: "
+    read -r do_ffmpeg
+    if [[ ! "$do_ffmpeg" =~ ^[Nn]$ ]]; then
+        if command -v apt &>/dev/null; then
+            sudo apt update -qq && sudo apt install -y ffmpeg
+        elif command -v brew &>/dev/null; then
+            brew install ffmpeg
+        else
+            err "Could not auto-install ffmpeg. Install it manually: https://ffmpeg.org/download.html"
+        fi
+        command -v ffmpeg &>/dev/null && ok "ffmpeg installed." || err "ffmpeg still not found — TTS will not work."
+    else
+        warn "Skipping ffmpeg. Voice/TTS features will not work without it."
+    fi
+fi
+
 # ── Virtual environment ───────────────────────────────────────────────────────
 echo
 info "Setting up virtual environment..."
