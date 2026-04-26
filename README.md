@@ -18,6 +18,56 @@ Everything — shop item descriptions, scheduled Monday/Friday roasts, the LLM s
 
 ---
 
+## Multiserver Setup
+
+The bot supports multiple Discord servers from a single instance. Each server gets its own hate target and roast channel — the economy (coins, stocks, trivia wins) is shared across all servers since Discord user IDs are globally unique.
+
+### Quick start for a new server
+
+Once the bot is running and in your server, run these two commands as an admin:
+
+```
+!setup
+```
+Registers the current channel as the roast channel for your server. Scheduled roasts, weekly recaps, market news, and vote announcements will all post here.
+
+```
+!settarget <display_name> <discord_username> [ticker]
+```
+Sets who the bot hates on your server. Example:
+```
+!settarget Alex alexaccount ALEX
+```
+
+That's it. The bot will now roast `Alex` in your server independently of any other server's target.
+
+### How it works
+
+| Scope | Behaviour |
+|---|---|
+| **Target** | Per-server — each server has its own name, username(s), and stock ticker |
+| **Roast channel** | Per-server — set with `!setup` |
+| **Economy** (coins, balances, portfolios) | Shared — user IDs are unique across Discord |
+| **Trivia leaderboard** | Shared |
+| **Stock market** | Global — prices are the same on every server |
+| **Weekly vote** | Per-server — the vote updates that server's target only |
+
+### First server (`.env`-based)
+
+If you only have one server, you don't need `!setup` or `!settarget`. The bot falls back to the env vars (`TARGET_NAME`, `TARGET_USERNAMES`, `ROAST_CHANNEL_ID`) the same as before. Per-server config only kicks in once a `!setup` or `!settarget` is run for that guild.
+
+### Useful admin commands
+
+| Command | What it does |
+|---|---|
+| `!setup` | Register current channel as this server's roast channel |
+| `!settarget <name> <username> [ticker]` | Set/change the hate target for this server |
+| `!currenttarget` | Show who the bot is currently targeting on this server |
+| `!startvote` | Manually open a weekly hate vote in the current channel |
+| `!tallyvote` | Manually close and tally the current vote |
+
+---
+
 ## Prerequisites
 
 - Python 3.8 or higher
