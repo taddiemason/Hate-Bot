@@ -18,11 +18,16 @@ TARGET_NAME = os.getenv("TARGET_NAME", "Donovan")
 TARGET_USERNAMES = {u.strip().lower() for u in os.getenv("TARGET_USERNAMES", "itsrebrand,streamerweiner").split(",") if u.strip()}
 TARGET_STOCK_TICKER = os.getenv("TARGET_STOCK_TICKER", TARGET_NAME.upper()[:8])
 
-def _t(s: str) -> str:
-    """Replace default target placeholders with configured TARGET_NAME."""
-    return (s.replace("Donovan", TARGET_NAME)
-             .replace("DONOVAN", TARGET_STOCK_TICKER)
-             .replace("donovan", TARGET_NAME.lower()))
+def _t(s: str, guild_id=None) -> str:
+    """Replace target placeholders. guild_id uses that guild's target; None uses global defaults."""
+    if guild_id:
+        t = get_guild_target(guild_id)
+        name, ticker = t["name"], t["ticker"]
+    else:
+        name, ticker = TARGET_NAME, TARGET_STOCK_TICKER
+    return (s.replace("Donovan", name)
+             .replace("DONOVAN", ticker)
+             .replace("donovan", name.lower()))
 
 import aiohttp.web
 from web_admin import create_web_app, ADMIN_PASSWORD
@@ -719,15 +724,26 @@ QUOTES = [{"text": _t(q["text"]), "is_donovan": q["is_donovan"]} for q in QUOTES
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def update_target(name: str, usernames: list, ticker: str = None, save: bool = True):
-    """Swap the active target live — re-processes all prompts, arrays, and the stock key."""
+def update_target(name: str, usernames: list, ticker: str = None, save: bool = True, guild_id: int = None):
+    """Swap the hate-target.
+
+    If guild_id is given, writes a per-guild override to economy.json and leaves
+    the global defaults untouched.  If guild_id is None, updates the global vars
+    (legacy single-server behaviour).
+    """
+    if not ticker:
+        ticker = name.upper()[:8]
+
+    if guild_id is not None:
+        if save:
+            set_guild_target(guild_id, name, usernames, ticker)
+        return
+
+    # ── Legacy global update (single-server / env-var path) ──────────────────
     global TARGET_NAME, TARGET_USERNAMES, TARGET_STOCK_TICKER, DONOVAN_USERNAMES
     global SYSTEM_PROMPT, DONOVAN_ARGUE_PROMPT
     global SHOP_ITEMS, SENTENCES, MONDAY_ROASTS, FRIDAY_ROASTS, RUST_ROASTS
     global WOW_ROASTS, DONOVAN_ROASTS_DIRECT, GENERAL_ROASTS, TRIVIA_QUESTIONS, QUOTES
-
-    if not ticker:
-        ticker = name.upper()[:8]
 
     old_ticker = TARGET_STOCK_TICKER
 
@@ -736,11 +752,9 @@ def update_target(name: str, usernames: list, ticker: str = None, save: bool = T
     TARGET_STOCK_TICKER = ticker
     DONOVAN_USERNAMES = TARGET_USERNAMES
 
-    # Regenerate LLM prompts
     SYSTEM_PROMPT = _t(_SYSTEM_PROMPT_TMPL)
     DONOVAN_ARGUE_PROMPT = _t(_ARGUE_PROMPT_TMPL)
 
-    # Re-process all static string arrays from saved templates
     SHOP_ITEMS          = {k: {**v, "description": _t(v["description"])} for k, v in _SHOP_ITEMS_TMPL.items()}
     SENTENCES           = [_t(s) for s in _SENTENCES_TMPL]
     MONDAY_ROASTS       = [_t(s) for s in _MONDAY_ROASTS_TMPL]
@@ -752,7 +766,6 @@ def update_target(name: str, usernames: list, ticker: str = None, save: bool = T
     TRIVIA_QUESTIONS    = [{"q": _t(q["q"]), "a": q["a"]} for q in _TRIVIA_TMPL]
     QUOTES              = [{"text": _t(q["text"]), "is_donovan": q["is_donovan"]} for q in _QUOTES_TMPL]
 
-    # Rename MARKET_STOCKS key
     if old_ticker in MARKET_STOCKS and old_ticker != ticker:
         stock_data = MARKET_STOCKS.pop(old_ticker)
         stock_data["name"] = f"{name} Holdings Inc."
@@ -760,7 +773,6 @@ def update_target(name: str, usernames: list, ticker: str = None, save: bool = T
     elif ticker in MARKET_STOCKS:
         MARKET_STOCKS[ticker]["name"] = f"{name} Holdings Inc."
 
-    # Rebuild _STOCK_NEWS entry for the target ticker
     if old_ticker in _STOCK_NEWS and old_ticker != ticker:
         _STOCK_NEWS.pop(old_ticker, None)
     _STOCK_NEWS[ticker] = [_fix_news_item(i) for i in _STOCK_NEWS_TARGET_TMPL]
@@ -772,7 +784,6 @@ def update_target(name: str, usernames: list, ticker: str = None, save: bool = T
             "usernames": list(TARGET_USERNAMES),
             "ticker": ticker,
         }
-        # Migrate market price history to new ticker key
         if "market" in eco and old_ticker in eco["market"] and old_ticker != ticker:
             eco["market"][ticker] = eco["market"].pop(old_ticker)
         save_economy(eco)
@@ -1149,6 +1160,64 @@ def record_trivia_win(user_id):
     save_economy(eco)
 
 
+def get_guild_target(guild_id):
+    """Return the hate-target config for a guild, falling back to env-var defaults."""
+    if guild_id:
+        eco = load_economy()
+        t = eco.get("guild_targets", {}).get(str(guild_id))
+        if t:
+            return t
+    return {"name": TARGET_NAME, "usernames": list(TARGET_USERNAMES), "ticker": TARGET_STOCK_TICKER}
+
+
+def get_guild_config(guild_id):
+    """Return the channel config for a guild, falling back to env-var defaults."""
+    if guild_id:
+        eco = load_economy()
+        c = eco.get("guild_configs", {}).get(str(guild_id))
+        if c:
+            return c
+    return {"roast_channel": ROAST_CHANNEL_ID, "voice_channel": VOICE_CHANNEL_ID}
+
+
+def set_guild_target(guild_id, name, usernames, ticker=None):
+    eco = load_economy()
+    eco.setdefault("guild_targets", {})[str(guild_id)] = {
+        "name": name,
+        "usernames": [u.strip().lower() for u in usernames if u.strip()],
+        "ticker": ticker or name.upper()[:8],
+    }
+    save_economy(eco)
+
+
+def set_guild_config(guild_id, roast_channel=None, voice_channel=None):
+    eco = load_economy()
+    cfg = eco.setdefault("guild_configs", {}).setdefault(str(guild_id), {})
+    if roast_channel is not None:
+        cfg["roast_channel"] = roast_channel
+    if voice_channel is not None:
+        cfg["voice_channel"] = voice_channel
+    save_economy(eco)
+
+
+def _get_guild_channels():
+    """Return list of (gid_or_None, channel) for all configured guild roast channels."""
+    eco = load_economy()
+    configs = eco.get("guild_configs", {})
+    result = []
+    for gid_str, cfg in configs.items():
+        ch_id = cfg.get("roast_channel")
+        if ch_id:
+            ch = bot.get_channel(ch_id)
+            if ch:
+                result.append((int(gid_str), ch))
+    if not result and ROAST_CHANNEL_ID:
+        ch = bot.get_channel(ROAST_CHANNEL_ID)
+        if ch:
+            result.append((None, ch))
+    return result
+
+
 def is_insurance_active():
     exp = load_economy().get("insurance_expires")
     if not exp:
@@ -1202,13 +1271,17 @@ def get_daily_reward(streak):
     return base
 
 
-def is_donovan(user):
+def is_donovan(user, guild_id=None):
+    if guild_id:
+        t = get_guild_target(guild_id)
+        return user.name.lower() in {u.lower() for u in t["usernames"]}
     return user.name.lower() in DONOVAN_USERNAMES
 
 
-def get_donovan_activity(guild):
+def get_donovan_activity(guild, guild_id=None):
+    usernames = {u.lower() for u in get_guild_target(guild_id)["usernames"]} if guild_id else DONOVAN_USERNAMES
     for member in guild.members:
-        if member.name.lower() in DONOVAN_USERNAMES:
+        if member.name.lower() in usernames:
             print(f"[DEBUG] Found member: {member.name}, activities: {member.activities}")
             for activity in member.activities:
                 print(f"[DEBUG] Activity: {activity} | Type: {type(activity)}")
@@ -1224,12 +1297,13 @@ def get_question(message):
     return text.strip()
 
 
-async def ask_openai(question):
+async def ask_openai(question, guild_id=None):
+    prompt = _t(_SYSTEM_PROMPT_TMPL, guild_id)
     try:
         response = await groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": question},
             ],
             max_tokens=100,
@@ -1237,15 +1311,16 @@ async def ask_openai(question):
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"[ERROR] OpenAI request failed: {e}")
-        return random.choice(GENERAL_ROASTS)
+        return _t(random.choice(_GENERAL_ROASTS_TMPL), guild_id)
 
 
-async def argue_with_donovan(message_content):
+async def argue_with_donovan(message_content, guild_id=None):
+    prompt = _t(_ARGUE_PROMPT_TMPL, guild_id)
     try:
         response = await groq_client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
-                {"role": "system", "content": DONOVAN_ARGUE_PROMPT},
+                {"role": "system", "content": prompt},
                 {"role": "user", "content": message_content},
             ],
             max_tokens=100,
@@ -1253,7 +1328,7 @@ async def argue_with_donovan(message_content):
         return response.choices[0].message.content.strip()
     except Exception as e:
         print(f"[ERROR] Donovan argue failed: {e}")
-        return random.choice(DONOVAN_ROASTS_DIRECT)
+        return _t(random.choice(_ROASTS_DIRECT_TMPL), guild_id)
 
 
 SPORTS_TRIVIA_FALLBACKS = [
@@ -1474,11 +1549,15 @@ async def is_hot_take(text):
 
 
 def get_donovan_voice_channel(guild):
+    gid = guild.id if guild else None
+    tgt_usernames = {u.lower() for u in get_guild_target(gid)["usernames"]}
     for member in guild.members:
-        if member.name.lower() in DONOVAN_USERNAMES and member.voice:
+        if member.name.lower() in tgt_usernames and member.voice:
             return member.voice.channel
-    if VOICE_CHANNEL_ID:
-        return bot.get_channel(VOICE_CHANNEL_ID)
+    cfg = get_guild_config(gid)
+    vc_id = cfg.get("voice_channel") or VOICE_CHANNEL_ID
+    if vc_id:
+        return bot.get_channel(vc_id)
     return None
 
 
@@ -1527,117 +1606,123 @@ async def tts_worker():
 
 @tasks.loop(time=datetime.time(hour=21, minute=0, tzinfo=ZoneInfo("America/New_York")))
 async def weekly_recap():
-    if not ROAST_CHANNEL_ID:
-        return
     today = datetime.datetime.now(datetime.timezone.utc).weekday()
     if today != 6:  # Sunday only
         return
-    channel = bot.get_channel(ROAST_CHANNEL_ID)
-    if not channel:
+
+    guild_channels = _get_guild_channels()
+    if not guild_channels:
         return
 
     total, log = get_weekly_recap()
-    if not total:
-        await channel.send(f"📊 **Weekly Roast Recap**\n{TARGET_NAME} somehow avoided getting roasted this week. Suspicious.")
-        return
+    busiest_day = hour_label = None
+    if total:
+        day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        day_counts = [0] * 7
+        hour_counts = [0] * 24
+        for ts in log:
+            dt = datetime.datetime.fromisoformat(ts)
+            day_counts[dt.weekday()] += 1
+            hour_counts[dt.hour] += 1
+        busiest_day = day_names[day_counts.index(max(day_counts))]
+        busiest_hour = hour_counts.index(max(hour_counts))
+        hour_label = datetime.datetime(2000, 1, 1, busiest_hour).strftime("%I %p").lstrip("0")
 
-    day_names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    day_counts = [0] * 7
-    hour_counts = [0] * 24
-    for ts in log:
-        dt = datetime.datetime.fromisoformat(ts)
-        day_counts[dt.weekday()] += 1
-        hour_counts[dt.hour] += 1
-
-    busiest_day = day_names[day_counts.index(max(day_counts))]
-    busiest_hour = hour_counts.index(max(hour_counts))
-    hour_label = datetime.datetime(2000, 1, 1, busiest_hour).strftime("%I %p").lstrip("0")
-
-    await channel.send(
-        f"📊 **Weekly Roast Recap**\n"
-        f"{TARGET_NAME} got roasted **{total} times** this week. Impressive dedication everyone.\n\n"
-        f"🏆 Most active day: **{busiest_day}**\n"
-        f"⏰ Peak roast hour: **{hour_label} UTC**\n\n"
-        f"See you all next week for more {TARGET_NAME} disrespect."
-    )
-
-    # Weekly portfolio recap
+    # Lottery drawing (once — shared economy)
     eco = load_economy()
     init_market(eco)
-    all_uids = set(eco.get("portfolios", {}).keys()) | set(eco.get("short_positions", {}).keys())
-    if all_uids:
-        ranked = sorted(all_uids, key=lambda u: get_portfolio_value(eco, u), reverse=True)
-        lines = ["📈 **Weekly Portfolio Standings**\n"]
-        for i, uid in enumerate(ranked[:5], 1):
-            member = channel.guild.get_member(int(uid))
-            name = member.display_name if member else "Unknown"
-            val = get_portfolio_value(eco, uid)
-            medal = ["🥇", "🥈", "🥉", "4.", "5."][i - 1]
-            lines.append(f"{medal} **{name}** — {val:.0f} coins")
-        if len(ranked) > 1:
-            loser_uid = ranked[-1]
-            loser = channel.guild.get_member(int(loser_uid))
-            loser_name = loser.display_name if loser else "Unknown"
-            loser_val = get_portfolio_value(eco, loser_uid)
-            lines.append(f"\n💀 Biggest loser: **{loser_name}** — {loser_val:.0f} coins")
-        # Reset volume
-        for ticker in eco.get("market", {}):
-            eco["market"][ticker]["volume_today"] = 0
-        save_economy(eco)
-        await channel.send("\n".join(lines))
-
-    # Weekly lottery drawing
-    eco = load_economy()
     tickets = eco.get("lottery_tickets", {})
     pot = eco.get("lottery_pot", 0)
+    lottery_winner_id = None
+    pool = []
     if tickets and pot > 0:
-        pool = []
         for uid, count in tickets.items():
             pool.extend([uid] * count)
-        winner_id = random.choice(pool)
-        winner = channel.guild.get_member(int(winner_id))
-        winner_name = winner.display_name if winner else "Someone"
-        add_coins(int(winner_id), pot)
-        eco["lottery_tickets"] = {}
-        eco["lottery_pot"] = 500
-        save_economy(eco)
-        await channel.send(
-            f"🎟️ **WEEKLY LOTTERY DRAWING!**\n\n"
-            f"Out of {len(pool)} tickets...\n"
-            f"🏆 **{winner_name}** wins the **{pot} coin** pot!\n"
-            f"New lottery starts now. Buy tickets with `!lottery <amount>`."
-        )
-    else:
-        eco["lottery_tickets"] = {}
-        eco["lottery_pot"] = 500
-        save_economy(eco)
+        lottery_winner_id = random.choice(pool)
+        add_coins(int(lottery_winner_id), pot)
+        eco = load_economy()
+    eco["lottery_tickets"] = {}
+    eco["lottery_pot"] = 500
+    # Reset weekly volume
+    for ticker in eco.get("market", {}):
+        eco["market"][ticker]["volume_today"] = 0
+    save_economy(eco)
+
+    for gid, channel in guild_channels:
+        tgt_name = get_guild_target(gid)["name"] if gid else TARGET_NAME
+
+        if not total:
+            await channel.send(
+                f"📊 **Weekly Roast Recap**\n{tgt_name} somehow avoided getting roasted this week. Suspicious."
+            )
+        else:
+            await channel.send(
+                f"📊 **Weekly Roast Recap**\n"
+                f"{tgt_name} got roasted **{total} times** this week. Impressive dedication everyone.\n\n"
+                f"🏆 Most active day: **{busiest_day}**\n"
+                f"⏰ Peak roast hour: **{hour_label} UTC**\n\n"
+                f"See you all next week for more {tgt_name} disrespect."
+            )
+
+        # Portfolio standings (per-guild for member display names)
+        eco2 = load_economy()
+        all_uids = set(eco2.get("portfolios", {}).keys()) | set(eco2.get("short_positions", {}).keys())
+        if all_uids:
+            ranked = sorted(all_uids, key=lambda u: get_portfolio_value(eco2, u), reverse=True)
+            lines = ["📈 **Weekly Portfolio Standings**\n"]
+            for i, uid in enumerate(ranked[:5], 1):
+                member = channel.guild.get_member(int(uid))
+                mname = member.display_name if member else "Unknown"
+                val = get_portfolio_value(eco2, uid)
+                medal = ["🥇", "🥈", "🥉", "4.", "5."][i - 1]
+                lines.append(f"{medal} **{mname}** — {val:.0f} coins")
+            if len(ranked) > 1:
+                loser_uid = ranked[-1]
+                loser = channel.guild.get_member(int(loser_uid))
+                loser_name = loser.display_name if loser else "Unknown"
+                loser_val = get_portfolio_value(eco2, loser_uid)
+                lines.append(f"\n💀 Biggest loser: **{loser_name}** — {loser_val:.0f} coins")
+            await channel.send("\n".join(lines))
+
+        # Lottery result
+        if lottery_winner_id:
+            winner_member = channel.guild.get_member(int(lottery_winner_id))
+            winner_display = winner_member.display_name if winner_member else "Someone"
+            await channel.send(
+                f"🎟️ **WEEKLY LOTTERY DRAWING!**\n\n"
+                f"Out of {len(pool)} tickets...\n"
+                f"🏆 **{winner_display}** wins the **{pot} coin** pot!\n"
+                f"New lottery starts now. Buy tickets with `!lottery <amount>`."
+            )
+        else:
+            await channel.send(
+                "🎟️ No lottery tickets sold this week. New pot resets to **500 coins**."
+            )
 
 
 @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=ZoneInfo("America/New_York")))
 async def scheduled_roast():
-    if not ROAST_CHANNEL_ID:
-        return
-    channel = bot.get_channel(ROAST_CHANNEL_ID)
-    if not channel:
-        return
     today = datetime.datetime.now(datetime.timezone.utc).weekday()
-    if today == 0:
-        await channel.send(random.choice(MONDAY_ROASTS))
-    elif today == 4:
-        msg = random.choice(FRIDAY_ROASTS)
-        await channel.send(msg)
+    guild_channels = _get_guild_channels()
+    for gid, channel in guild_channels:
+        if today == 0:
+            await channel.send(_t(random.choice(_MONDAY_ROASTS_TMPL), gid))
+        elif today == 4:
+            await channel.send(_t(random.choice(_FRIDAY_ROASTS_TMPL), gid))
+    # Friday TTS for the original hardcoded channel
+    if today == 4:
         try:
             friday_channel = bot.get_channel(1236061974555791492) or await bot.fetch_channel(1236061974555791492)
-            await friday_channel.send(msg)
-            await tts_queue.put((friday_channel.guild.id, msg, 1236061974555791492))
+            if friday_channel:
+                msg = _t(random.choice(_FRIDAY_ROASTS_TMPL))
+                await friday_channel.send(msg)
+                await tts_queue.put((friday_channel.guild.id, msg, 1236061974555791492))
         except Exception as e:
             print(f"[ERROR] Friday TTS channel failed: {e}")
 
 
 @tasks.loop(minutes=1)
 async def limit_order_checker():
-    if not ROAST_CHANNEL_ID:
-        return
     eco = load_economy()
     init_market(eco)
     orders = list(eco.get("limit_orders", []))
@@ -1673,12 +1758,13 @@ async def limit_order_checker():
         notifications.append((uid, order["id"], status, msg))
     eco["limit_orders"] = remaining
     save_economy(eco)
-    channel = bot.get_channel(ROAST_CHANNEL_ID)
-    if channel:
-        for uid, order_id, status, msg in notifications:
+    guild_channels = _get_guild_channels()
+    for uid, order_id, status, msg in notifications:
+        for gid, channel in guild_channels:
             member = channel.guild.get_member(int(uid))
             mention = member.mention if member else f"<@{uid}>"
             await channel.send(f"📋 {mention} Limit order **#{order_id}** {status}: {msg}")
+            break
 
 
 @tasks.loop(minutes=10)
@@ -1686,7 +1772,7 @@ async def meme_stock_drift():
     eco = load_economy()
     init_market(eco)
     now = datetime.datetime.now(datetime.timezone.utc)
-    channel = bot.get_channel(ROAST_CHANNEL_ID) if ROAST_CHANNEL_ID else None
+    broadcast_channels = _get_guild_channels()
     mstate = eco["market_state"]
 
     # ── Resolve pending rumors ────────────────────────────────────────────────
@@ -1702,10 +1788,10 @@ async def meme_stock_drift():
                     old = eco["market"][t]["price"]
                     eco["market"][t]["prev_price"] = old
                     eco["market"][t]["price"] = max(round(old * (1 + pct / 100), 2), 0.01)
-            if channel:
-                new_p = eco["market"][rumor["ticker"]]["price"]
-                analyst = random.choice(_ANALYST_QUOTES)
-                await channel.send(
+            new_p = eco["market"][rumor["ticker"]]["price"]
+            analyst = random.choice(_ANALYST_QUOTES)
+            for _, ch in broadcast_channels:
+                await ch.send(
                     f"✅ **CONFIRMED — ${rumor['ticker']}:** {rumor['headline']}\n"
                     f"**${rumor['old_price']:.2f} → ${new_p:.2f}** | {analyst}"
                 )
@@ -1715,8 +1801,8 @@ async def meme_stock_drift():
                     old = eco["market"][t]["price"]
                     eco["market"][t]["prev_price"] = old
                     eco["market"][t]["price"] = max(round(old * (1 - pct / 100), 2), 0.01)
-            if channel:
-                await channel.send(
+            for _, ch in broadcast_channels:
+                await ch.send(
                     f"❌ **DENIED — ${rumor['ticker']}:** *\"{rumor['headline']}\"* was **FAKE NEWS**. "
                     f"Price reverting. 📉"
                 )
@@ -1805,10 +1891,10 @@ async def meme_stock_drift():
                 "remaining_impact": remaining_impact,
                 "confirm_at": (now + datetime.timedelta(minutes=20)).isoformat(),
             })
-            if channel:
-                pre_pct = pre_impact[ticker]
-                cur_p = eco["market"][ticker]["price"]
-                await channel.send(
+            pre_pct = pre_impact[ticker]
+            cur_p = eco["market"][ticker]["price"]
+            for _, ch in broadcast_channels:
+                await ch.send(
                     f"🔍 **UNCONFIRMED — ${ticker}:** *\"{headline}\"*\n"
                     f"Markets reacting cautiously: **${cur_p:.2f}** ({pre_pct:+.1f}% pre-move) "
                     f"— confirmation expected in ~20 min..."
@@ -1824,30 +1910,30 @@ async def meme_stock_drift():
 
     save_economy(eco)
 
-    if channel:
-        for ticker, headline, impact_pct, old_p, impacts in immediate_news:
-            arrow = "📈" if impact_pct > 0 else "📉"
-            new_p = eco["market"][ticker]["price"]
-            analyst = random.choice(_ANALYST_QUOTES)
-            linked_str = "".join(
-                f" | **${t}** → **${eco['market'][t]['price']:.2f}** ({pct:+.1f}%)"
-                for t, pct in impacts.items() if t != ticker
-            )
-            await channel.send(
-                f"{arrow} **BREAKING — ${ticker}:** {headline}\n"
-                f"**${old_p:.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
-                f"*{analyst}*"
-            )
+    for ticker, headline, impact_pct, old_p, impacts in immediate_news:
+        arrow = "📈" if impact_pct > 0 else "📉"
+        new_p = eco["market"][ticker]["price"]
+        analyst = random.choice(_ANALYST_QUOTES)
+        linked_str = "".join(
+            f" | **${t}** → **${eco['market'][t]['price']:.2f}** ({pct:+.1f}%)"
+            for t, pct in impacts.items() if t != ticker
+        )
+        msg_text = (
+            f"{arrow} **BREAKING — ${ticker}:** {headline}\n"
+            f"**${old_p:.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
+            f"*{analyst}*"
+        )
+        for _, ch in broadcast_channels:
+            await ch.send(msg_text)
 
 
 @tasks.loop(minutes=5)
 async def derivatives_settlement():
-    if not ROAST_CHANNEL_ID:
-        return
     eco = load_economy()
     init_market(eco)
     init_derivatives(eco)
-    channel = bot.get_channel(ROAST_CHANNEL_ID)
+    gc = _get_guild_channels()
+    channel = gc[0][1] if gc else None
     await settle_expired_futures(eco, channel)
     await expire_options(eco, channel)
     save_economy(eco)
@@ -1855,11 +1941,10 @@ async def derivatives_settlement():
 
 @tasks.loop(minutes=5)
 async def margin_call_checker():
-    if not ROAST_CHANNEL_ID:
-        return
     eco = load_economy()
     init_market(eco)
-    channel = bot.get_channel(ROAST_CHANNEL_ID)
+    gc = _get_guild_channels()
+    channel = gc[0][1] if gc else None
     now = datetime.datetime.now(datetime.timezone.utc)
     squeeze_msgs = []
 
@@ -1956,9 +2041,12 @@ VOTE_CANDIDATE_LIMIT = 9
 async def _post_hate_vote(channel=None):
     """Post a reaction-based vote in the roast channel."""
     if channel is None:
-        if not ROAST_CHANNEL_ID:
+        gc = _get_guild_channels()
+        if not gc:
             return
-        channel = bot.get_channel(ROAST_CHANNEL_ID)
+        for gid, ch in gc:
+            await _post_hate_vote(ch)
+        return
     if not channel:
         return
 
@@ -2027,8 +2115,10 @@ async def _tally_hate_vote():
         )
         return
 
-    old_name = TARGET_NAME
-    update_target(winner["name"], [winner["username"]])
+    guild_id = channel.guild.id if channel.guild else None
+    old_tgt = get_guild_target(guild_id)
+    old_name = old_tgt["name"]
+    update_target(winner["name"], [winner["username"]], guild_id=guild_id)
 
     # Build a scoreboard
     board = []
@@ -2086,10 +2176,51 @@ async def tally_vote(ctx):
 @bot.command(name="currenttarget")
 async def current_target(ctx):
     """Show who the bot is currently targeting."""
+    gid = ctx.guild.id if ctx.guild else None
+    tgt = get_guild_target(gid)
+    usernames = tgt.get("usernames") or []
     await ctx.send(
-        f"🎯 Current target: **{TARGET_NAME}**\n"
-        f"Usernames: `{'`, `'.join(TARGET_USERNAMES) if TARGET_USERNAMES else 'none set'}`\n"
-        f"Stock ticker: `${TARGET_STOCK_TICKER}`"
+        f"🎯 Current target: **{tgt['name']}**\n"
+        f"Usernames: `{'`, `'.join(usernames) if usernames else 'none set'}`\n"
+        f"Stock ticker: `${tgt['ticker']}`"
+    )
+
+
+@bot.command(name="setup")
+@commands.has_permissions(administrator=True)
+async def setup_guild(ctx):
+    """Register this channel as the roast channel for this server."""
+    if not ctx.guild:
+        await ctx.send("This command must be used in a server.")
+        return
+    set_guild_config(ctx.guild.id, roast_channel=ctx.channel.id)
+    await ctx.send(
+        f"✅ **Setup complete!** This channel is now the roast channel for **{ctx.guild.name}**.\n"
+        f"Use `!settarget <display_name> <discord_username> [ticker]` to set who gets hated on here."
+    )
+
+
+@bot.command(name="settarget")
+@commands.has_permissions(administrator=True)
+async def set_target_cmd(ctx, name: str = None, username: str = None, ticker: str = None):
+    """Set the hate target for this server. Usage: !settarget <name> <username> [ticker]"""
+    if not ctx.guild:
+        await ctx.send("This command must be used in a server.")
+        return
+    if not name or not username:
+        gid = ctx.guild.id
+        tgt = get_guild_target(gid)
+        await ctx.send(
+            f"Usage: `!settarget <display_name> <discord_username> [ticker]`\n"
+            f"Current target: **{tgt['name']}** (`{', '.join(tgt.get('usernames', []))}`) ${tgt['ticker']}"
+        )
+        return
+    set_guild_target(ctx.guild.id, name, [username], ticker)
+    final_ticker = (ticker or name.upper()[:8]).upper()
+    await ctx.send(
+        f"🎯 Target updated for **{ctx.guild.name}**!\n"
+        f"Name: **{name}** | Username: `{username}` | Ticker: `${final_ticker}`\n"
+        f"The hate machine is now aimed at **{name}**."
     )
 
 
@@ -2139,11 +2270,17 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # First message of the day bonus (day boundary in Eastern Time, consistent with scheduled tasks)
+    gid = message.guild.id if message.guild else None
+    tgt = get_guild_target(gid)
+    tgt_name = tgt["name"]
+    tgt_usernames = {u.lower() for u in tgt["usernames"]}
+
+    # First message of the day bonus (per-guild, keyed by guild+date)
     today = datetime.datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     eco = load_economy()
-    if eco.get("first_message_today") != today:
-        eco["first_message_today"] = today
+    fmtd_key = f"first_message_today_{gid}" if gid else "first_message_today"
+    if eco.get(fmtd_key) != today:
+        eco[fmtd_key] = today
         save_economy(eco)
         bonus = 30 if is_double_coin_day() else 15
         add_coins(message.author.id, bonus)
@@ -2178,21 +2315,19 @@ async def on_message(message):
                 del highlow_games[message.author.id]
                 await message.channel.send(f"💰 Cashed out at **{game['multiplier']}x**! You won **{winnings} coins**!")
 
-    # Trivia answer check handled by wait_for inside the !trivia command
-
     # Guess the roast answer check
     if guessroast_active and not message.author.bot:
-        if TARGET_NAME.lower() in message.content.lower():
+        if tgt_name.lower() in message.content.lower():
             globals()["guessroast_active"] = False
             add_coins(message.author.id, 30)
-            await message.channel.send(f"✅ {message.author.mention} got it! It was **Donovan** (obviously). **+30 coins!**")
+            await message.channel.send(f"✅ {message.author.mention} got it! It was **{tgt_name}** (obviously). **+30 coins!**")
 
-    bot_member = message.guild.get_member(bot.user.id)
+    bot_member = message.guild.get_member(bot.user.id) if message.guild else None
     bot_mentioned = bot.user in message.mentions or (
         bot_member and any(role in message.role_mentions for role in bot_member.roles)
     )
 
-    if is_donovan(message.author):
+    if message.author.name.lower() in tgt_usernames:
         add_coins(message.author.id, 1)
         eco = load_economy()
         if eco.get("slow_clap_pending", 0) > 0:
@@ -2201,19 +2336,19 @@ async def on_message(message):
             for _ in range(5):
                 await message.add_reaction("👏")
 
-    if is_donovan(message.author) and len(message.content) > 10 and random.random() < 0.1:
+    if message.author.name.lower() in tgt_usernames and len(message.content) > 10 and random.random() < 0.1:
         if await is_hot_take(message.content):
             flagged = await message.reply(
-                f"🚨 **HOT TAKE ALERT** 🚨\n{TARGET_NAME} is at it again. React to cast your vote:"
+                f"🚨 **HOT TAKE ALERT** 🚨\n{tgt_name} is at it again. React to cast your vote:"
             )
             await flagged.add_reaction("🔥")
             await flagged.add_reaction("🧊")
 
     if bot_mentioned:
         try:
-            if is_donovan(message.author):
+            if message.author.name.lower() in tgt_usernames:
                 question = get_question(message)
-                comeback = await argue_with_donovan(question if question else "hey")
+                comeback = await argue_with_donovan(question if question else "hey", gid)
                 await message.channel.send(comeback)
                 return
 
@@ -2222,22 +2357,21 @@ async def on_message(message):
 
             if question:
                 print(f"[DEBUG] Sending to Groq...")
-                reply = await ask_openai(question)
+                reply = await ask_openai(question, gid)
             else:
-                activity = get_donovan_activity(message.guild)
+                activity = get_donovan_activity(message.guild, gid) if message.guild else None
                 if activity and "rust" in activity.lower():
-                    reply = random.choice(RUST_ROASTS)
+                    reply = _t(random.choice(_RUST_ROASTS_TMPL), gid)
                 elif activity and "world of warcraft" in activity.lower():
-                    reply = random.choice(WOW_ROASTS)
+                    reply = _t(random.choice(_WOW_ROASTS_TMPL), gid)
                 else:
-                    reply = random.choice(GENERAL_ROASTS)
+                    reply = _t(random.choice(_GENERAL_ROASTS_TMPL), gid)
 
             print(f"[DEBUG] Sending reply: '{reply}'")
 
             if is_insurance_active():
-                await message.channel.send(f"🛡️ {TARGET_NAME}'s insurance is active... unfortunately it doesn't cover being a loser.")
+                await message.channel.send(f"🛡️ {tgt_name}'s insurance is active... unfortunately it doesn't cover being a loser.")
 
-            # Build the final roast message applying upgrades
             send_text = reply
             force_tts = False
 
@@ -2251,7 +2385,7 @@ async def on_message(message):
                 send_text = f"@here {send_text}"
 
             if consume_upgrade(message.author.id, "nuclear"):
-                nuclear_text = await ask_openai(_t("Give the single most devastating, savage, all-out roast of Donovan humanly possible. No mercy."))
+                nuclear_text = await ask_openai(_t("Give the single most devastating, savage, all-out roast of Donovan humanly possible. No mercy.", gid), gid)
                 send_text = f"☢️ **NUCLEAR ROAST:** {nuclear_text}"
                 force_tts = True
 
@@ -2262,7 +2396,7 @@ async def on_message(message):
                 await tts_queue.put((message.guild.id, send_text))
 
             if consume_upgrade(message.author.id, "snitch"):
-                donovan = discord.utils.find(lambda m: m.name.lower() in DONOVAN_USERNAMES, message.guild.members)
+                donovan = discord.utils.find(lambda m: m.name.lower() in tgt_usernames, message.guild.members)
                 if donovan:
                     try:
                         await donovan.send(f"📬 Someone wanted you to see this:\n_{reply}_")
@@ -2288,101 +2422,101 @@ async def on_message(message):
             if consume_upgrade(message.author.id, "receipt"):
                 try:
                     async for old_msg in message.channel.history(limit=200):
-                        if old_msg.author.name.lower() in DONOVAN_USERNAMES and len(old_msg.content) > 15 and old_msg.id != message.id:
+                        if old_msg.author.name.lower() in tgt_usernames and len(old_msg.content) > 15 and old_msg.id != message.id:
                             await message.channel.send(f"🧾 **RECEIPT:** _{old_msg.author.display_name} once said:_ \"{old_msg.content}\"")
                             break
                 except Exception:
                     pass
 
             if consume_upgrade(message.author.id, "press_release"):
-                pr = await ask_openai(f"Write a short fake formal press release (3-4 sentences) from 'Donovan Industries' announcing his latest embarrassing L. Make it sound official but absurd.")
+                pr = await ask_openai(_t(f"Write a short fake formal press release (3-4 sentences) from 'Donovan Industries' announcing his latest embarrassing L. Make it sound official but absurd.", gid), gid)
                 await message.channel.send(f"📰 **PRESS RELEASE:**\n{pr}")
 
             if consume_upgrade(message.author.id, "breaking_news"):
-                news = await ask_openai(_t("Write a fake breaking news alert (1-2 sentences, all caps headline) about Donovan doing something embarrassing or pathetic. Include a fake news network name."))
+                news = await ask_openai(_t("Write a fake breaking news alert (1-2 sentences, all caps headline) about Donovan doing something embarrassing or pathetic. Include a fake news network name.", gid), gid)
                 await message.channel.send(f"🚨 **BREAKING NEWS** 🚨\n{news}")
 
             if consume_upgrade(message.author.id, "intervention"):
-                await message.channel.send(f"@everyone\n\n📢 **FORMAL SERVER INTERVENTION**\n\nThis server has come together to formally address {TARGET_NAME}'s ongoing behaviour. We are concerned. We are united. And we are not impressed.\n\nPlease take this moment to reflect, {TARGET_NAME}.")
+                await message.channel.send(f"@everyone\n\n📢 **FORMAL SERVER INTERVENTION**\n\nThis server has come together to formally address {tgt_name}'s ongoing behaviour. We are concerned. We are united. And we are not impressed.\n\nPlease take this moment to reflect, {tgt_name}.")
 
             if consume_upgrade(message.author.id, "lore_drop"):
-                lore = await ask_openai(_t("Write a short absurd fictional origin story (3-5 sentences) for why Donovan is the way he is. Make it ridiculous, creative, and savage."))
-                await message.channel.send(f"📖 **{TARGET_NAME.upper()} LORE DROP:**\n{lore}")
+                lore = await ask_openai(_t("Write a short absurd fictional origin story (3-5 sentences) for why Donovan is the way he is. Make it ridiculous, creative, and savage.", gid), gid)
+                await message.channel.send(f"📖 **{tgt_name.upper()} LORE DROP:**\n{lore}")
 
             if consume_upgrade(message.author.id, "mega_roast"):
-                mega = await ask_openai(_t("Give the most savage, creative, brutal roast about Donovan you can. Go all out."))
+                mega = await ask_openai(_t("Give the most savage, creative, brutal roast about Donovan you can. Go all out.", gid), gid)
                 await message.channel.send(f"💥 **MEGA ROAST:** {mega}")
 
             if consume_upgrade(message.author.id, "scorched_earth"):
                 for i in range(3):
-                    roast = await ask_openai(f"Give a unique savage roast about Donovan. Make it different each time. Roast #{i+1}.")
+                    roast = await ask_openai(_t(f"Give a unique savage roast about Donovan. Make it different each time. Roast #{i+1}.", gid), gid)
                     await message.channel.send(f"🔥 {roast}")
 
             if consume_upgrade(message.author.id, "exile"):
-                donovan = discord.utils.find(lambda m: m.name.lower() in DONOVAN_USERNAMES, message.guild.members)
+                donovan = discord.utils.find(lambda m: m.name.lower() in tgt_usernames, message.guild.members)
                 if donovan:
                     try:
                         until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=60)
                         await donovan.timeout(until, reason="Exile purchased by the people.")
-                        await message.channel.send(f"⛔ {TARGET_NAME} has been exiled for 60 seconds. Enjoy the peace.")
+                        await message.channel.send(f"⛔ {tgt_name} has been exiled for 60 seconds. Enjoy the peace.")
                     except Exception:
                         await message.channel.send("⛔ Exile failed — bot needs Moderate Members permission.")
 
             if consume_upgrade(message.author.id, "eulogy"):
-                eulogy = await ask_openai(_t("Write a short dramatic funeral eulogy (3-5 sentences) for Donovan's dignity, as if it has already passed away. Be theatrical, savage, and treat it as a genuine loss to no one."))
-                await message.channel.send(f"⚰️ **EULOGY FOR {TARGET_NAME.upper()}'S DIGNITY:**\n{eulogy}")
+                eulogy = await ask_openai(_t("Write a short dramatic funeral eulogy (3-5 sentences) for Donovan's dignity, as if it has already passed away. Be theatrical, savage, and treat it as a genuine loss to no one.", gid), gid)
+                await message.channel.send(f"⚰️ **EULOGY FOR {tgt_name.upper()}'S DIGNITY:**\n{eulogy}")
 
             if consume_upgrade(message.author.id, "wanted_poster"):
-                poster = await ask_openai(_t("Generate a fake FBI wanted poster description for Donovan. Include: name, aliases, known crimes against the server, last known location, reward amount, and a warning to approach with low expectations."))
+                poster = await ask_openai(_t("Generate a fake FBI wanted poster description for Donovan. Include: name, aliases, known crimes against the server, last known location, reward amount, and a warning to approach with low expectations.", gid), gid)
                 await message.channel.send(f"🪧 **WANTED** 🪧\n{poster}")
 
             if consume_upgrade(message.author.id, "therapy_session"):
-                therapy = await ask_openai(_t("Roleplay as Donovan's therapist reading case notes aloud. Include diagnosis, presenting complaints, therapist observations, and prognosis. Make it clinical but devastatingly accurate."))
+                therapy = await ask_openai(_t("Roleplay as Donovan's therapist reading case notes aloud. Include diagnosis, presenting complaints, therapist observations, and prognosis. Make it clinical but devastatingly accurate.", gid), gid)
                 await message.channel.send(f"🛋️ **THERAPY SESSION — CASE NOTES:**\n{therapy}")
 
             if consume_upgrade(message.author.id, "cease_and_desist"):
-                legal = await ask_openai(_t("Draft a formal cease and desist letter demanding Donovan immediately stop being himself. Use legal language, cite specific offenses against the server, and threaten consequences. Keep it under 6 sentences."))
+                legal = await ask_openai(_t("Draft a formal cease and desist letter demanding Donovan immediately stop being himself. Use legal language, cite specific offenses against the server, and threaten consequences. Keep it under 6 sentences.", gid), gid)
                 await message.channel.send(f"⚖️ **CEASE & DESIST:**\n{legal}")
 
             if consume_upgrade(message.author.id, "linkedin_post"):
-                linkedin = await ask_openai(_t("Write a cringe corporate LinkedIn post from Donovan's perspective. He is spinning his latest embarrassing L as a 'growth opportunity' and 'learning experience'. Include hashtags. Make it painfully on-brand for LinkedIn."))
-                await message.channel.send(f"💼 **{TARGET_NAME.upper()}'S LINKEDIN POST:**\n{linkedin}")
+                linkedin = await ask_openai(_t("Write a cringe corporate LinkedIn post from Donovan's perspective. He is spinning his latest embarrassing L as a 'growth opportunity' and 'learning experience'. Include hashtags. Make it painfully on-brand for LinkedIn.", gid), gid)
+                await message.channel.send(f"💼 **{tgt_name.upper()}'S LINKEDIN POST:**\n{linkedin}")
 
             if consume_upgrade(message.author.id, "documentary"):
-                doc = await ask_openai(_t("Write a Ken Burns-style documentary narration (4-6 sentences) about a recent Donovan moment. Use a slow, grave, reflective tone. Include dramatic pauses indicated by '...' and treat the subject as historically significant."))
+                doc = await ask_openai(_t("Write a Ken Burns-style documentary narration (4-6 sentences) about a recent Donovan moment. Use a slow, grave, reflective tone. Include dramatic pauses indicated by '...' and treat the subject as historically significant.", gid), gid)
                 await message.channel.send(f"🎬 **DOCUMENTARY NARRATION:**\n{doc}")
 
             if consume_upgrade(message.author.id, "legacy_mode"):
-                legacy = await ask_openai(_t("Compile a devastating highlight reel recap of Donovan's greatest hits — his worst moments, biggest Ls, and most embarrassing behavior. Present it as a formal legacy retrospective. 5-7 sentences."))
-                await message.channel.send(f"🏆 **{TARGET_NAME.upper()}'S LEGACY — HIGHLIGHT REEL:**\n{legacy}")
+                legacy = await ask_openai(_t("Compile a devastating highlight reel recap of Donovan's greatest hits — his worst moments, biggest Ls, and most embarrassing behavior. Present it as a formal legacy retrospective. 5-7 sentences.", gid), gid)
+                await message.channel.send(f"🏆 **{tgt_name.upper()}'S LEGACY — HIGHLIGHT REEL:**\n{legacy}")
 
             if consume_upgrade(message.author.id, "motivational_poster"):
-                poster = await ask_openai(_t("Generate a fake motivational poster. Include a short inspirational quote falsely attributed to Donovan, followed by the most embarrassing context that makes the quote hilarious. Format it like a real motivational poster caption."))
+                poster = await ask_openai(_t("Generate a fake motivational poster. Include a short inspirational quote falsely attributed to Donovan, followed by the most embarrassing context that makes the quote hilarious. Format it like a real motivational poster caption.", gid), gid)
                 await message.channel.send(f"🖼️ **MOTIVATIONAL POSTER:**\n{poster}")
 
             if consume_upgrade(message.author.id, "autopsy_report"):
-                autopsy = await ask_openai(_t("Write a clinical medical examiner's autopsy report on the cause of death of Donovan's credibility. Include time of death, cause of death, contributing factors, and examiner's notes. Keep it formal and devastating."))
-                await message.channel.send(f"🔬 **AUTOPSY REPORT — {TARGET_NAME.upper()}'S CREDIBILITY:**\n{autopsy}")
+                autopsy = await ask_openai(_t("Write a clinical medical examiner's autopsy report on the cause of death of Donovan's credibility. Include time of death, cause of death, contributing factors, and examiner's notes. Keep it formal and devastating.", gid), gid)
+                await message.channel.send(f"🔬 **AUTOPSY REPORT — {tgt_name.upper()}'S CREDIBILITY:**\n{autopsy}")
 
             if consume_upgrade(message.author.id, "wikipedia_page"):
-                wiki = await ask_openai(_t("Write a fake Wikipedia-style article about Donovan. Include sections for Early Life, Known For, Controversies, and Legacy. Use encyclopedic tone. The controversies section should be the longest."))
-                await message.channel.send(f"📖 **WIKIPEDIA: {TARGET_NAME.upper()}**\n{wiki}")
+                wiki = await ask_openai(_t("Write a fake Wikipedia-style article about Donovan. Include sections for Early Life, Known For, Controversies, and Legacy. Use encyclopedic tone. The controversies section should be the longest.", gid), gid)
+                await message.channel.send(f"📖 **WIKIPEDIA: {tgt_name.upper()}**\n{wiki}")
 
             if consume_upgrade(message.author.id, "parole_hearing"):
-                parole = await ask_openai(_t("Conduct a formal parole board hearing transcript for Donovan, who is seeking the right to be taken seriously again. Include board questions, his responses, deliberation, and the final verdict — which is always denied. 5-7 sentences."))
+                parole = await ask_openai(_t("Conduct a formal parole board hearing transcript for Donovan, who is seeking the right to be taken seriously again. Include board questions, his responses, deliberation, and the final verdict — which is always denied. 5-7 sentences.", gid), gid)
                 await message.channel.send(f"🔨 **PAROLE HEARING — VERDICT: DENIED:**\n{parole}")
 
             if consume_upgrade(message.author.id, "dossier"):
-                dossier = await ask_openai(_t("Present a full classified intelligence dossier on Donovan. Include: codename, threat level, known associates, behavioral patterns, noted weaknesses, and current status. Use spy/intelligence report formatting."))
-                await message.channel.send(f"🗂️ **CLASSIFIED DOSSIER: {TARGET_NAME.upper()}**\n{dossier}")
+                dossier = await ask_openai(_t("Present a full classified intelligence dossier on Donovan. Include: codename, threat level, known associates, behavioral patterns, noted weaknesses, and current status. Use spy/intelligence report formatting.", gid), gid)
+                await message.channel.send(f"🗂️ **CLASSIFIED DOSSIER: {tgt_name.upper()}**\n{dossier}")
 
             if consume_upgrade(message.author.id, "state_of_the_union"):
-                sotu = await ask_openai(_t("Deliver a presidential State of the Union address formally assessing the ongoing Donovan situation. Address the nation, assess the threat to morale, outline the administration's response plan, and close with hollow optimism. 5-7 sentences."))
-                await message.channel.send(f"🎙️ **STATE OF THE UNION — THE {TARGET_NAME.upper()} SITUATION:**\n{sotu}")
+                sotu = await ask_openai(_t("Deliver a presidential State of the Union address formally assessing the ongoing Donovan situation. Address the nation, assess the threat to morale, outline the administration's response plan, and close with hollow optimism. 5-7 sentences.", gid), gid)
+                await message.channel.send(f"🎙️ **STATE OF THE UNION — THE {tgt_name.upper()} SITUATION:**\n{sotu}")
 
             coin_reward = 20 if is_double_coin_day() else 10
             if is_double_coin_day():
-                await message.channel.send(f"💰 **2x Roast Coins** — Fuck {TARGET_NAME} Friday/Weekend bonus active!")
+                await message.channel.send(f"💰 **2x Roast Coins** — Fuck {tgt_name} Friday/Weekend bonus active!")
             add_coins(message.author.id, coin_reward)
             update_stocks_on_roast(message.author.id)
             bounty_total = claim_bounties(message.author.id)
@@ -2395,7 +2529,7 @@ async def on_message(message):
 
             if count in MILESTONES:
                 await message.channel.send(
-                    f"Congratulations {TARGET_NAME}, you've been insulted {count} times. Keep up the great work!"
+                    f"Congratulations {tgt_name}, you've been insulted {count} times. Keep up the great work!"
                 )
 
             eco = load_economy()
@@ -2410,11 +2544,11 @@ async def on_message(message):
                         add_coins(member.id, bonus)
                 await message.channel.send(
                     f"🎉 **SERVER MILESTONE: {count} total roasts!**\n"
-                    f"Everyone gets **+{bonus} Roast Coins** for their dedication to roasting {TARGET_NAME}!"
+                    f"Everyone gets **+{bonus} Roast Coins** for their dedication to roasting {tgt_name}!"
                 )
         except Exception as e:
             print(f"[ERROR] on_message crashed: {e}")
-            await message.channel.send(random.choice(GENERAL_ROASTS))
+            await message.channel.send(_t(random.choice(_GENERAL_ROASTS_TMPL), gid))
 
     await bot.process_commands(message)
 
@@ -2561,15 +2695,17 @@ async def guess_roast(ctx):
     if guessroast_active:
         await ctx.send("A guess the roast game is already active!")
         return
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
     guessroast_active = True
-    all_roasts = GENERAL_ROASTS + RUST_ROASTS + WOW_ROASTS
-    roast = random.choice(all_roasts)
-    blanked = roast.replace(TARGET_NAME, "**[???]**").replace(TARGET_NAME.lower(), "**[???]**")
+    tmpl = random.choice(_GENERAL_ROASTS_TMPL + _RUST_ROASTS_TMPL + _WOW_ROASTS_TMPL)
+    roast = _t(tmpl, gid)
+    blanked = roast.replace(tn, "**[???]**").replace(tn.lower(), "**[???]**")
     await ctx.send(f"🎭 **GUESS WHO THIS ROAST IS AIMED AT:**\n\n_{blanked}_\n\nFirst to type the name wins **30 coins!** (20 seconds)")
     await asyncio.sleep(20)
     if guessroast_active:
         guessroast_active = False
-        await ctx.send(f"⏱️ Time's up! It was **{TARGET_NAME}**. Obviously.")
+        await ctx.send(f"⏱️ Time's up! It was **{tn}**. Obviously.")
 
 
 @bot.command(name="highlow")
@@ -2881,7 +3017,9 @@ async def sports_trivia(ctx):
 
     except Exception as e:
         print(f"[ERROR] Sports trivia crashed: {e}")
-        await ctx.send(f"Sports trivia crashed. Blame {TARGET_NAME}.")
+        gid = ctx.guild.id if ctx.guild else None
+        tn = get_guild_target(gid)["name"]
+        await ctx.send(f"Sports trivia crashed. Blame {tn}.")
     finally:
         sports_trivia_active[channel_id] = False
 
@@ -2950,12 +3088,16 @@ async def stock_market(ctx):
 
 @bot.command(name="Commands", aliases=["commands"])
 async def commands_list(ctx):
+    gid = ctx.guild.id if ctx.guild else None
+    tgt = get_guild_target(gid)
+    tn = tgt["name"]
+    ticker = tgt["ticker"]
     await ctx.send(
-        f"**📋 {TARGET_NAME} Hate Bot — Commands (1/3)**\n\n"
-        f"**`@{TARGET_NAME} Hate Bot`** — Roasts {TARGET_NAME}. Ask it a question for a smart response.\n"
-        f"**`!Trial <reason>`** — Puts {TARGET_NAME} on trial. Server votes guilty/not guilty for 60 seconds.\n"
-        f"**`!Guesswhosaidit`** — 3 round game. Guess if the quote was {TARGET_NAME} or someone else.\n"
-        f"**`!TTS on/off`** — Toggles voice channel roasts. ({TARGET_NAME} cannot use this.)\n\n"
+        f"**📋 {tn} Hate Bot — Commands (1/3)**\n\n"
+        f"**`@{tn} Hate Bot`** — Roasts {tn}. Ask it a question for a smart response.\n"
+        f"**`!Trial <reason>`** — Puts {tn} on trial. Server votes guilty/not guilty for 60 seconds.\n"
+        f"**`!Guesswhosaidit`** — 3 round game. Guess if the quote was {tn} or someone else.\n"
+        f"**`!TTS on/off`** — Toggles voice channel roasts. ({tn} cannot use this.)\n\n"
         "**💰 Economy**\n"
         "**`!balance`** — Check your Roast Coin balance.\n"
         "**`!leaderboard`** — Top 5 coin holders.\n"
@@ -2965,14 +3107,16 @@ async def commands_list(ctx):
         "**`!use <item>`** — Arm an item from your inventory (fires on next @mention).\n"
         "**`!bounty <amount> <description>`** — Post a bounty paid to whoever triggers the next roast.\n"
         "**`!bounties`** — View active bounties.\n"
-        f"**`!insurance <minutes>`** — {TARGET_NAME} only: buy temporary (useless) protection.\n"
+        f"**`!insurance <minutes>`** — {tn} only: buy temporary (useless) protection.\n"
         "**`!give @user <amount>`** — Transfer coins to another member.\n"
         "**`!blackmarket`** — View peer-to-peer upgrade listings.\n"
         "**`!listitem <item> <price>`** — List an owned upgrade for sale.\n"
-        "**`!buyitem <id>`** — Buy an upgrade from the black market."
+        "**`!buyitem <id>`** — Buy an upgrade from the black market.\n"
+        "**`!settarget <name> <username> [ticker]`** — (Admin) Set who the bot hates on this server.\n"
+        "**`!setup`** — (Admin) Register this channel as the roast channel for this server."
     )
     await ctx.send(
-        "**📋 Donovan Hate Bot — Commands (2/3)**\n\n"
+        f"**📋 {tn} Hate Bot — Commands (2/3)**\n\n"
         "**🎮 Minigames & Rewards**\n"
         "**`!daily`** — 25 coin daily check-in. Streak builds a multiplier, doubles at 7 days.\n"
         "**`!flip <amount> heads/tails`** — Coinflip gamble.\n"
@@ -2986,9 +3130,9 @@ async def commands_list(ctx):
         "**`!lottery <amount>`** — Buy lottery tickets (10 coins each). Drawn every Sunday at 9 PM EST."
     )
     await ctx.send(
-        "**📋 Donovan Hate Bot — Commands (3/3)**\n\n"
+        f"**📋 {tn} Hate Bot — Commands (3/3)**\n\n"
         "**📈 Stock Market**\n"
-        f"**`!stockmarket`** — View current prices for all stocks (${TARGET_STOCK_TICKER}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
+        f"**`!stockmarket`** — View current prices for all stocks (${ticker}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
         "**`!buystock <TICKER> <shares>`** — Buy shares at market price.\n"
         "**`!sellstock <TICKER> <shares>`** — Sell shares you own.\n"
         "**`!short <TICKER> <shares>`** — Open a short position (profit if price drops).\n"
@@ -3206,7 +3350,9 @@ async def use_item(ctx, item_name: str = None):
     if item_name == "slow_clap":
         eco["slow_clap_pending"] = eco.get("slow_clap_pending", 0) + 1
         save_economy(eco)
-        await ctx.send(f"👏 **Slow Clap** armed! It will fire on {TARGET_NAME}'s next message.")
+        gid = ctx.guild.id if ctx.guild else None
+        tn = get_guild_target(gid)["name"]
+        await ctx.send(f"👏 **Slow Clap** armed! It will fire on {tn}'s next message.")
         return
 
     eco.setdefault("pending_upgrades", {}).setdefault(uid, []).append(item_name)
@@ -3217,8 +3363,10 @@ async def use_item(ctx, item_name: str = None):
 
 @bot.command(name="bounty")
 async def post_bounty(ctx, amount: int = None, *, description: str = None):
-    if is_donovan(ctx.author):
-        await ctx.send(f"{TARGET_NAME} cannot post bounties. They ARE the bounty.")
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
+    if is_donovan(ctx.author, gid):
+        await ctx.send(f"{tn} cannot post bounties. They ARE the bounty.")
         return
     if not amount or not description or amount <= 0:
         await ctx.send("Usage: `!bounty <amount> <description>`")
@@ -3248,8 +3396,10 @@ async def view_bounties(ctx):
 
 @bot.command(name="insurance")
 async def insurance(ctx, minutes: int = None):
-    if not is_donovan(ctx.author):
-        await ctx.send(f"Only {TARGET_NAME} needs insurance. Everyone else is fine.")
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
+    if not is_donovan(ctx.author, gid):
+        await ctx.send(f"Only {tn} needs insurance. Everyone else is fine.")
         return
     if not minutes or minutes <= 0:
         await ctx.send(f"Usage: `!insurance <minutes>` — costs {INSURANCE_COST_PER_MINUTE} coins/min (max {MAX_INSURANCE_MINUTES} min).")
@@ -3258,13 +3408,13 @@ async def insurance(ctx, minutes: int = None):
     cost = minutes * INSURANCE_COST_PER_MINUTE
     if not spend_coins(ctx.author.id, cost):
         bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-        await ctx.send(f"Not enough coins {TARGET_NAME}. You have **{bal}**, you need **{cost}**. Keep chatting to earn more.")
+        await ctx.send(f"Not enough coins {tn}. You have **{bal}**, you need **{cost}**. Keep chatting to earn more.")
         return
     expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
     eco = load_economy()
     eco["insurance_expires"] = expires.isoformat()
     save_economy(eco)
-    await ctx.send(f"🛡️ {TARGET_NAME} bought **{minutes} minutes** of insurance for **{cost} coins**. Cute. Won't save him though.")
+    await ctx.send(f"🛡️ {tn} bought **{minutes} minutes** of insurance for **{cost} coins**. Cute. Won't save him though.")
 
 
 @bot.command(name="give")
@@ -3353,8 +3503,11 @@ async def buy_market_item(ctx, listing_id: int = None):
 async def guess_who(ctx):
     global guess_game_active
 
-    if is_donovan(ctx.author):
-        await ctx.send(f"You're not allowed to play this game {TARGET_NAME}. You might recognise yourself.")
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
+
+    if is_donovan(ctx.author, gid):
+        await ctx.send(f"You're not allowed to play this game {tn}. You might recognise yourself.")
         return
 
     if guess_game_active:
@@ -3363,16 +3516,17 @@ async def guess_who(ctx):
 
     guess_game_active = True
     scores = {}
-    pool = random.sample(QUOTES, min(3, len(QUOTES)))
+    quotes_pool = [{"text": _t(q["text"], gid), "is_donovan": q["is_donovan"]} for q in _QUOTES_TMPL]
+    pool = random.sample(quotes_pool, min(3, len(quotes_pool)))
 
     try:
-        await ctx.send(f"🎮 **GUESS WHO SAID IT** 🎮\n3 rounds, 30 seconds each.\nReact 🇩 if you think **{TARGET_NAME}** said it, 🤷 if **someone else** did.")
+        await ctx.send(f"🎮 **GUESS WHO SAID IT** 🎮\n3 rounds, 30 seconds each.\nReact 🇩 if you think **{tn}** said it, 🤷 if **someone else** did.")
 
         for round_num, quote in enumerate(pool, 1):
             msg = await ctx.send(
                 f"**Round {round_num}/3**\n\n"
                 f'*"{quote["text"]}"*\n\n'
-                f"🇩 = {TARGET_NAME}    🤷 = Not {TARGET_NAME}"
+                f"🇩 = {tn}    🤷 = Not {tn}"
             )
             await msg.add_reaction("🇩")
             await msg.add_reaction("🤷")
@@ -3396,7 +3550,7 @@ async def guess_who(ctx):
             for uid in correct_voters:
                 scores[uid] = scores.get(uid, 0) + 1
 
-            answer = f"**{TARGET_NAME.upper()}** said that. Shocking." if quote["is_donovan"] else f"A normal human said that. {TARGET_NAME} could never."
+            answer = f"**{tn.upper()}** said that. Shocking." if quote["is_donovan"] else f"A normal human said that. {tn} could never."
             correct_count = len(correct_voters)
             await ctx.send(f"⏱️ Time's up! {answer}\n✅ {correct_count} people got it right.")
 
@@ -3411,14 +3565,14 @@ async def guess_who(ctx):
             )
             await ctx.send(
                 f"🏆 **GAME OVER**\n\n{board}\n\n"
-                f"Winner: **{winner_name}** with {top_score}/3 — the only one here who truly understands how big of a loser {TARGET_NAME} is."
+                f"Winner: **{winner_name}** with {top_score}/3 — the only one here who truly understands how big of a loser {tn} is."
             )
         else:
-            await ctx.send(f"🏆 **GAME OVER**\nNobody scored a single point. {TARGET_NAME} would fit right in.")
+            await ctx.send(f"🏆 **GAME OVER**\nNobody scored a single point. {tn} would fit right in.")
 
     except Exception as e:
         print(f"[ERROR] Guess game failed: {e}")
-        await ctx.send(f"The game crashed. Blame {TARGET_NAME}.")
+        await ctx.send(f"The game crashed. Blame {tn}.")
     finally:
         guess_game_active = False
 
@@ -3427,12 +3581,15 @@ async def guess_who(ctx):
 async def trial(ctx, *, reason: str = None):
     global trial_active
 
-    if is_donovan(ctx.author):
-        await ctx.send(f"You can't put yourself on trial {TARGET_NAME}. Though honestly you should.")
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
+
+    if is_donovan(ctx.author, gid):
+        await ctx.send(f"You can't put yourself on trial {tn}. Though honestly you should.")
         return
 
     if trial_active:
-        await ctx.send(f"A trial is already in progress. {TARGET_NAME} can only be humiliated one case at a time.")
+        await ctx.send(f"A trial is already in progress. {tn} can only be humiliated one case at a time.")
         return
 
     if not reason:
@@ -3442,7 +3599,7 @@ async def trial(ctx, *, reason: str = None):
     trial_active = True
     try:
         msg = await ctx.send(
-            f"⚖️ **THE PEOPLE VS. {TARGET_NAME.upper()}** ⚖️\n\n"
+            f"⚖️ **THE PEOPLE VS. {tn.upper()}** ⚖️\n\n"
             f"**Charge:** {reason}\n\n"
             f"Cast your vote:\n"
             f"👨‍⚖️ = GUILTY\n"
@@ -3474,11 +3631,11 @@ async def trial(ctx, *, reason: str = None):
             await ctx.send(
                 f"⚖️ **VERDICT: NOT GUILTY** ⚖️\n"
                 f"_{not_guilty} not guilty — {guilty} guilty_\n\n"
-                f"{TARGET_NAME} walks free today. Don't worry, they'll embarrass themselves again soon enough."
+                f"{tn} walks free today. Don't worry, they'll embarrass themselves again soon enough."
             )
     except Exception as e:
         print(f"[ERROR] Trial failed: {e}")
-        await ctx.send(f"The trial collapsed due to {TARGET_NAME}'s overwhelming incompetence. Court dismissed.")
+        await ctx.send(f"The trial collapsed due to {tn}'s overwhelming incompetence. Court dismissed.")
     finally:
         trial_active = False
 
@@ -3487,8 +3644,10 @@ async def trial(ctx, *, reason: str = None):
 async def toggle_tts(ctx, state: str = None):
     global tts_enabled
 
-    if is_donovan(ctx.author):
-        await ctx.send(f"Lmao no. You don't get a say in this, {TARGET_NAME}.")
+    gid = ctx.guild.id if ctx.guild else None
+    tn = get_guild_target(gid)["name"]
+    if is_donovan(ctx.author, gid):
+        await ctx.send(f"Lmao no. You don't get a say in this, {tn}.")
         return
 
     if state is None or state.lower() not in ("on", "off"):
