@@ -1556,9 +1556,16 @@ def get_donovan_voice_channel(guild):
         if member.name.lower() in tgt_usernames and member.voice:
             return member.voice.channel
     cfg = get_guild_config(gid)
-    vc_id = cfg.get("voice_channel") or VOICE_CHANNEL_ID
+    vc_id = cfg.get("voice_channel")
     if vc_id:
-        return bot.get_channel(vc_id)
+        channel = bot.get_channel(vc_id)
+        if channel and getattr(channel, "guild", None) and channel.guild.id == gid:
+            return channel
+        print(f"[WARN] Ignoring configured voice channel {vc_id} for guild {gid}; channel missing or cross-guild.")
+    if VOICE_CHANNEL_ID:
+        channel = bot.get_channel(VOICE_CHANNEL_ID)
+        if channel and getattr(channel, "guild", None) and channel.guild.id == gid:
+            return channel
     return None
 
 
