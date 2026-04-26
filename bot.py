@@ -1156,7 +1156,8 @@ def spend_coins(user_id, amount):
 def record_trivia_win(user_id):
     eco = load_economy()
     uid = str(user_id)
-    eco.setdefault("trivia_wins", {})[uid] = eco["trivia_wins"].get(uid, 0) + 1
+    wins = eco.setdefault("trivia_wins", {})
+    wins[uid] = wins.get(uid, 0) + 1
     save_economy(eco)
 
 
