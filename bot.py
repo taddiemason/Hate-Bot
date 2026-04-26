@@ -1142,6 +1142,13 @@ def spend_coins(user_id, amount):
     return True
 
 
+def record_trivia_win(user_id):
+    eco = load_economy()
+    uid = str(user_id)
+    eco.setdefault("trivia_wins", {})[uid] = eco["trivia_wins"].get(uid, 0) + 1
+    save_economy(eco)
+
+
 def is_insurance_active():
     exp = load_economy().get("insurance_expires")
     if not exp:
@@ -1275,12 +1282,14 @@ async def generate_sports_question(sport, used_topics=None):
                     "role": "system",
                     "content": (
                         f"You are a sports trivia question generator. Generate one trivia question specifically about {sport} from 1990 to present.\n"
+                        "ALLOWED QUESTION TYPES (pick any one):\n"
+                        "- Championship/title winners: which team won a title, or who was the key player on a championship team\n"
+                        "- All-time or era records: who holds a major record, or which team set a record (e.g. most wins in a season, most goals in a playoff run)\n"
+                        "- Historic rivalries: a notable fact about a well-known rivalry matchup\n"
+                        "- Memorable draft picks: which team drafted a famous player (e.g. 'Which team selected Lebron James first overall in 2003?')\n"
                         "STRICT RULES:\n"
-                        "- ONLY ask about championship/title winners: which team won a championship, or who was the starting QB/goalie/star player for a championship-winning team\n"
-                        "- Examples: 'Which team won the Stanley Cup in 2004?', 'Who was the starting quarterback for the Patriots when they won Super Bowl XXXIX?'\n"
-                        "- Do NOT ask about individual awards (MVP, Hart Trophy, Vezina, scoring titles, Conn Smythe, etc.) — these facts are too easy to get wrong\n"
-                        "- Do NOT ask about statistics, records, or draft picks\n"
                         "- Only generate questions about facts you are 100% certain are correct\n"
+                        "- Do NOT ask about individual season awards (MVP, Hart Trophy, Vezina, scoring titles) — these are too prone to errors\n"
                         "- ANSWER must be a last name only (for players) or a team name — nothing else\n"
                         "- Never put numbers, stats, or extra words in the ANSWER field\n"
                         f"{avoid}\n"
@@ -1321,6 +1330,11 @@ TRIVIA_CATEGORIES = [
     "technology and computers",
     "literature",
     "pop culture",
+    "art and artists",
+    "mythology and folklore",
+    "video games",
+    "sports and athletes",
+    "space and astronomy",
 ]
 
 
@@ -2533,6 +2547,7 @@ async def trivia(ctx):
 
         if winner:
             add_coins(winner.author.id, 50)
+            record_trivia_win(winner.author.id)
             await ctx.send(f"✅ {winner.author.mention} got it! The answer was **{answer.title()}**. **+50 coins!**")
         else:
             await ctx.send(f"⏱️ Time's up! The answer was **{answer.title()}**.")
@@ -2843,6 +2858,7 @@ async def sports_trivia(ctx):
 
             if winner:
                 add_coins(winner.id, 20)
+                record_trivia_win(winner.id)
                 scores[winner.id] = scores.get(winner.id, 0) + 20
                 await ctx.send(f"✅ **{winner.display_name}** got it! The answer was **{answer}** — **+20 coins!**")
             else:
@@ -3077,6 +3093,22 @@ async def leaderboard(ctx):
         else:
             lines.append(f"{i}. **{name}** — {total:.0f} coins")
     await ctx.send("💰 **Roast Coin Leaderboard** _(ranked by net worth)_\n" + "\n".join(lines))
+
+
+@bot.command(name="trivialeaderboard")
+async def trivia_leaderboard(ctx):
+    eco = load_economy()
+    wins = eco.get("trivia_wins", {})
+    if not wins:
+        await ctx.send("Nobody has won a trivia question yet.")
+        return
+    top = sorted(wins.items(), key=lambda x: x[1], reverse=True)[:10]
+    lines = []
+    for i, (uid, count) in enumerate(top, 1):
+        member = ctx.guild.get_member(int(uid))
+        name = member.display_name if member else "Unknown"
+        lines.append(f"{i}. **{name}** — {count} win{'s' if count != 1 else ''}")
+    await ctx.send("🧠 **Trivia Leaderboard** _(all-time wins across !trivia and !sportstrivia)_\n" + "\n".join(lines))
 
 
 @bot.command(name="shop")
