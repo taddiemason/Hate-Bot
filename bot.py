@@ -2125,8 +2125,8 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # First message of the day bonus
-    today = datetime.date.today().isoformat()
+    # First message of the day bonus (day boundary in Eastern Time, consistent with scheduled tasks)
+    today = datetime.datetime.now(ZoneInfo("America/New_York")).date().isoformat()
     eco = load_economy()
     if eco.get("first_message_today") != today:
         eco["first_message_today"] = today
