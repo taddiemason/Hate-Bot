@@ -3267,13 +3267,19 @@ async def trivia_leaderboard(ctx):
 
 @bot.command(name="shop")
 async def shop(ctx):
+    gid = ctx.guild.id if ctx.guild else None
     rotation, expires = get_shop_rotation()
     now = datetime.datetime.now(datetime.timezone.utc)
     seconds_left = int((expires - now).total_seconds())
     hours_left = seconds_left // 3600
     minutes_left = (seconds_left % 3600) // 60
-    lines = [f"**{SHOP_ITEMS[k]['name']}** (`{k}`) — {SHOP_ITEMS[k]['cost']} coins\n_{SHOP_ITEMS[k]['description']}_"
-             for k in rotation if k in SHOP_ITEMS]
+    lines = []
+    for k in rotation:
+        if k not in SHOP_ITEMS:
+            continue
+        desc_tmpl = _SHOP_ITEMS_TMPL.get(k, {}).get("description", SHOP_ITEMS[k]["description"])
+        desc = _t(desc_tmpl, gid)
+        lines.append(f"**{SHOP_ITEMS[k]['name']}** (`{k}`) — {SHOP_ITEMS[k]['cost']} coins\n_{desc}_")
     await ctx.send(
         f"🛒 **Roast Shop** — Today's Rotation _(refreshes in {hours_left}h {minutes_left}m)_\n\n"
         + "\n\n".join(lines)
