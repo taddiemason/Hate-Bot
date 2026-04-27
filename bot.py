@@ -484,16 +484,16 @@ USER_STOCK_BASE = 10.0
 
 MARKET_STOCKS = {
     "DONOVAN": {"name": "Donovan Holdings Inc.",      "base_price": 100.0, "shares_outstanding": 10000, "shortable": True, "volatility": 2.0, "mean_reversion": 0.03,  "daily_volume": 2000},
-    "RUST":    {"name": "Rust Lang Corp",             "base_price": 42.0,  "shares_outstanding": 5000,  "shortable": True, "volatility": 2.5, "mean_reversion": 0.02,  "daily_volume": 800},
-    "BIGMAC":  {"name": "McBigMac Enterprises",      "base_price": 5.99,  "shares_outstanding": 5000,  "shortable": True, "volatility": 1.2, "mean_reversion": 0.05,  "daily_volume": 3000},
-    "TORTA":   {"name": "Torta Brothers LLC",        "base_price": 12.50, "shares_outstanding": 5000,  "shortable": True, "volatility": 1.5, "mean_reversion": 0.04,  "daily_volume": 1500},
+    "RUST":    {"name": "Rust Lang Corp",             "base_price": 42.0,  "shares_outstanding": 5000,  "shortable": True, "volatility": 2.5, "mean_reversion": 0.02,  "daily_volume": 800,  "dividend_rate": 0.005},
+    "BIGMAC":  {"name": "McBigMac Enterprises",      "base_price": 5.99,  "shares_outstanding": 5000,  "shortable": True, "volatility": 1.2, "mean_reversion": 0.05,  "daily_volume": 3000, "dividend_rate": 0.010},
+    "TORTA":   {"name": "Torta Brothers LLC",        "base_price": 12.50, "shares_outstanding": 5000,  "shortable": True, "volatility": 1.5, "mean_reversion": 0.04,  "daily_volume": 1500, "dividend_rate": 0.008},
     "TRUMP":   {"name": "Trump Media & Golf Co.",    "base_price": 75.0,  "shares_outstanding": 5000,  "shortable": True, "volatility": 3.5, "mean_reversion": 0.015, "daily_volume": 2500},
     "COCAINE": {"name": "Cartel Pharmaceuticals",    "base_price": 420.0, "shares_outstanding": 2000,  "shortable": True, "volatility": 5.0, "mean_reversion": 0.01,  "daily_volume": 400},
     "TBELL":   {"name": "Taco Bell Enterprises",     "base_price": 29.99, "shares_outstanding": 8000,  "shortable": True, "volatility": 3.0, "mean_reversion": 0.03,  "daily_volume": 2000},
     "OHIO":    {"name": "Ohio Ventures LLC",         "base_price": 69.0,  "shares_outstanding": 4200,  "shortable": True, "volatility": 8.0, "mean_reversion": 0.005, "daily_volume": 1000},
     "FLORIDA": {"name": "Florida Man Holdings",      "base_price": 55.0,  "shares_outstanding": 3500,  "shortable": True, "volatility": 6.0, "mean_reversion": 0.01,  "daily_volume": 1200},
     "YEEZY":   {"name": "Ye Industries",             "base_price": 88.0,  "shares_outstanding": 1000,  "shortable": True, "volatility": 9.0, "mean_reversion": 0.005, "daily_volume": 200},
-    "WENDY":   {"name": "Wendy's Corp",              "base_price": 38.0,  "shares_outstanding": 6000,  "shortable": True, "volatility": 2.8, "mean_reversion": 0.04,  "daily_volume": 1800},
+    "WENDY":   {"name": "Wendy's Corp",              "base_price": 38.0,  "shares_outstanding": 6000,  "shortable": True, "volatility": 2.8, "mean_reversion": 0.04,  "daily_volume": 1800, "dividend_rate": 0.007},
 }
 
 _TARGET_STOCK_DEFAULTS = {
@@ -1028,6 +1028,8 @@ def init_market(eco):
                     "price": info["base_price"],
                     "prev_price": info["base_price"],
                     "dynamic_base": info["base_price"],
+                    "all_time_high": info["base_price"],
+                    "all_time_low": info["base_price"],
                     "last_updated": now,
                     "volume_today": 0,
                     "price_history": [info["base_price"]],
@@ -1035,6 +1037,8 @@ def init_market(eco):
             else:
                 eco["market"][ticker].setdefault("price_history", [eco["market"][ticker].get("price", info["base_price"])])
                 eco["market"][ticker].setdefault("dynamic_base", info["base_price"])
+                eco["market"][ticker].setdefault("all_time_high", eco["market"][ticker].get("price", info["base_price"]))
+                eco["market"][ticker].setdefault("all_time_low",  eco["market"][ticker].get("price", info["base_price"]))
     eco.setdefault("portfolios", {})
     eco.setdefault("short_positions", {})
     eco.setdefault("limit_orders", [])
@@ -1863,6 +1867,108 @@ async def tts_worker():
             tts_queue.task_done()
 
 
+def _market_sentiment(eco):
+    """Return a (score 0-100, label, emoji) fear/greed index from recent price action."""
+    all_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
+    momentum_vals, breadth_vals, si_vals = [], [], []
+    for ticker, info in all_stocks.items():
+        mdata = eco.get("market", {}).get(ticker)
+        if not mdata:
+            continue
+        history = mdata.get("price_history", [mdata["price"]])
+        price = mdata["price"]
+        # 12-tick momentum
+        if len(history) >= 13:
+            old = history[-13]
+            momentum_vals.append((price - old) / old * 100 if old else 0)
+        # breadth: is price above dynamic base?
+        dbase = mdata.get("dynamic_base", info.get("base_price", price))
+        breadth_vals.append(1 if price >= dbase else 0)
+        # short interest
+        shorted = sum(
+            pos[ticker]["shares"]
+            for pos in eco.get("short_positions", {}).values()
+            if ticker in pos
+        )
+        outstanding = info.get("shares_outstanding", 5000)
+        si_vals.append(shorted / outstanding)
+
+    if not breadth_vals:
+        return 50, "Neutral", "😐"
+
+    # Momentum: clamp avg % change to ±5, normalise to 0-100
+    avg_mom = sum(momentum_vals) / len(momentum_vals) if momentum_vals else 0
+    mom_score = (max(-5, min(5, avg_mom)) + 5) / 10 * 100
+
+    # Breadth: % of stocks above their base (0-100)
+    breadth_score = sum(breadth_vals) / len(breadth_vals) * 100
+
+    # Short interest: high SI = fear; invert so 0 SI = 100 (greedy), high SI = 0 (fearful)
+    avg_si = sum(si_vals) / len(si_vals) if si_vals else 0
+    si_score = max(0, 100 - avg_si * 500)
+
+    score = round(mom_score * 0.4 + breadth_score * 0.35 + si_score * 0.25)
+
+    if score >= 80:
+        return score, "Extreme Greed", "🤑"
+    elif score >= 60:
+        return score, "Greed", "😏"
+    elif score >= 40:
+        return score, "Neutral", "😐"
+    elif score >= 20:
+        return score, "Fear", "😰"
+    else:
+        return score, "Extreme Fear", "🩸"
+
+
+@tasks.loop(time=datetime.time(hour=18, minute=0, tzinfo=ZoneInfo("America/New_York")))
+async def dividend_payout():
+    """Every Sunday at 6 PM ET: pay dividends to holders of dividend-bearing stocks."""
+    if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 6:
+        return
+
+    eco = load_economy()
+    init_market(eco)
+    payouts = {}  # uid -> total coins earned
+
+    for ticker, info in MARKET_STOCKS.items():
+        rate = info.get("dividend_rate")
+        if not rate:
+            continue
+        price = eco["market"].get(ticker, {}).get("price", info["base_price"])
+        per_share = round(price * rate, 2)
+        if per_share <= 0:
+            continue
+        for uid, port in eco.get("portfolios", {}).items():
+            shares = port.get(ticker, {}).get("shares", 0)
+            if shares <= 0:
+                continue
+            earned = round(per_share * shares)
+            eco["balances"][uid] = eco.get("balances", {}).get(uid, 0) + earned
+            payouts.setdefault(uid, {})[ticker] = earned
+
+    save_economy(eco)
+
+    if not payouts:
+        return
+
+    lines = ["💰 **WEEKLY DIVIDENDS PAID**\n"]
+    for ticker, info in MARKET_STOCKS.items():
+        if not info.get("dividend_rate"):
+            continue
+        price = eco["market"].get(ticker, {}).get("price", info["base_price"])
+        per_share = round(price * info["dividend_rate"], 2)
+        total_paid = sum(v[ticker] for v in payouts.values() if ticker in v)
+        if total_paid:
+            lines.append(f"**${ticker}** — {per_share:.2f} coins/share  ({total_paid:,} coins paid out)")
+
+    for _, ch in _get_guild_channels():
+        try:
+            await ch.send("\n".join(lines))
+        except Exception:
+            pass
+
+
 @tasks.loop(time=datetime.time(hour=19, minute=0, tzinfo=ZoneInfo("America/New_York")))
 async def earnings_report():
     """Every Sunday at 7 PM ET: shift each stock's dynamic base toward its weekly average."""
@@ -2192,6 +2298,8 @@ async def meme_stock_drift():
         mdata["price"]          = new_price
         mdata["last_updated"]   = now_iso
         mdata["volume_today"]   = mdata.get("volume_today", 0) + tick_vol
+        mdata["all_time_high"]  = max(mdata.get("all_time_high", new_price), new_price)
+        mdata["all_time_low"]   = min(mdata.get("all_time_low",  new_price), new_price)
 
     # ── News events ───────────────────────────────────────────────────────────
     immediate_news = []
@@ -2666,6 +2774,7 @@ async def on_ready():
         print(f"[TARGET] Restored from economy.json: {TARGET_NAME} / {TARGET_USERNAMES} / ${TARGET_STOCK_TICKER}")
 
     scheduled_roast.start()
+    dividend_payout.start()
     earnings_report.start()
     weekly_recap.start()
     weekly_vote_start.start()
@@ -3581,11 +3690,19 @@ async def stock_trend(ctx, ticker: str = None):
         f"  2 hr:    {fmt_pct(c2h)}",
         f"  8 hr:    {fmt_pct(c8h)}",
         f"",
-        f"**Range (all history)**",
+        f"**Range (session history)**",
         f"  High: ${hi:.2f}   Low: ${lo:.2f}",
+        f"",
+        f"**All-Time High:** ${mdata.get('all_time_high', hi):.2f}  |  **All-Time Low:** ${mdata.get('all_time_low', lo):.2f}",
         f"",
         f"**Momentum:** {momentum}{si_str}",
     ]
+    # Dividend yield note
+    all_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
+    div_rate = all_stocks.get(ticker, {}).get("dividend_rate")
+    if div_rate:
+        weekly_per_share = round(current * div_rate, 2)
+        lines.append(f"💰 **Dividend:** {weekly_per_share:.2f} coins/share/week ({div_rate*100:.1f}% weekly yield)")
     await ctx.send("\n".join(lines))
 
 
@@ -3656,6 +3773,17 @@ async def stock_market(ctx):
             name = member.display_name if member else "Unknown"
             val = get_portfolio_value(eco, uid)
             lines.append(f"  **{name}** — {val:.0f} coins")
+
+    # Sentiment indicator
+    s_score, s_label, s_emoji = _market_sentiment(eco)
+    bar_filled = round(s_score / 10)
+    bar = "█" * bar_filled + "░" * (10 - bar_filled)
+    lines.append(f"\n**Market Sentiment:** {s_emoji} **{s_label}** `{bar}` {s_score}/100")
+
+    # Dividend-paying stocks note
+    div_stocks = [t for t, i in MARKET_STOCKS.items() if i.get("dividend_rate")]
+    if div_stocks:
+        lines.append(f"💰 Dividend stocks (paid every Sunday): {', '.join(f'${t}' for t in div_stocks)}")
 
     lines.append("\n`!buystock` `!sellstock` `!short` `!cover` `!limitorder` `!portfolio` `!orders` `!stocktrend <TICKER>`")
     await ctx.send("\n".join(lines))
