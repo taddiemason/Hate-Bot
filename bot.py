@@ -3543,6 +3543,7 @@ async def commands_list(ctx):
         f"**📋 {tn} Hate Bot — Commands (3/3)**\n\n"
         "**📈 Stock Market**\n"
         f"**`!stockmarket`** — View current prices for all stocks (${ticker}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
+        "**`!stocktrend <TICKER>`** — Sparkline chart, 30min/2hr/8hr performance, momentum indicator, and range for any stock.\n"
         "**`!buystock <TICKER> <shares>`** — Buy shares at market price.\n"
         "**`!sellstock <TICKER> <shares>`** — Sell shares you own.\n"
         "**`!short <TICKER> <shares>`** — Open a short position (profit if price drops).\n"
