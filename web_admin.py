@@ -403,12 +403,30 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
   </td>
 </tr>"""
 
-        # ── Target stocks from target_history ──
+        # ── Target stocks: current + historical ──
         delist_grace = datetime.timedelta(hours=48)
         now_utc = datetime.datetime.now(datetime.timezone.utc)
         target_rows = ""
         for guild in sorted(bot.guilds, key=lambda g: g.name):
             gid = str(guild.id)
+            guild_name = html.escape(guild.name)
+
+            # Current active target for this guild
+            current = eco.get("guild_targets", {}).get(gid, {})
+            cur_ticker = current.get("ticker", "")
+            cur_name = current.get("name", cur_ticker)
+            if cur_ticker:
+                price_t = eco.get("market", {}).get(cur_ticker, {}).get("price", 0.0)
+                target_rows += (
+                    f"<tr><td><b>{html.escape(cur_ticker)}</b></td>"
+                    f"<td>{html.escape(cur_name)}</td>"
+                    f"<td>{guild_name}</td>"
+                    f"<td>{price_t:.2f}</td>"
+                    f"<td><span style='color:#7c83fd'>Current Target</span></td>"
+                    f"<td></td></tr>"
+                )
+
+            # Historical targets for this guild
             history = eco.get("target_history", {}).get(gid, [])
             for entry in history:
                 ticker_t = entry.get("ticker", "")
@@ -438,7 +456,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 target_rows += (
                     f"<tr><td><b>{html.escape(ticker_t)}</b></td>"
                     f"<td>{html.escape(name_t)}</td>"
-                    f"<td>{html.escape(guild.name)}</td>"
+                    f"<td>{guild_name}</td>"
                     f"<td>{price_t:.2f}</td>"
                     f"<td>{status_html}</td>"
                     f"<td>{action_html}</td></tr>"
