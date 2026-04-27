@@ -980,6 +980,7 @@ def init_market(eco):
             ticker: {
                 "price": info["base_price"],
                 "prev_price": info["base_price"],
+                "dynamic_base": info["base_price"],
                 "last_updated": now,
                 "volume_today": 0,
                 "price_history": [info["base_price"]],
@@ -992,12 +993,14 @@ def init_market(eco):
                 eco["market"][ticker] = {
                     "price": info["base_price"],
                     "prev_price": info["base_price"],
+                    "dynamic_base": info["base_price"],
                     "last_updated": now,
                     "volume_today": 0,
                     "price_history": [info["base_price"]],
                 }
             else:
                 eco["market"][ticker].setdefault("price_history", [eco["market"][ticker].get("price", info["base_price"])])
+                eco["market"][ticker].setdefault("dynamic_base", info["base_price"])
     eco.setdefault("portfolios", {})
     eco.setdefault("short_positions", {})
     eco.setdefault("limit_orders", [])
@@ -1801,6 +1804,60 @@ async def tts_worker():
             tts_queue.task_done()
 
 
+@tasks.loop(time=datetime.time(hour=19, minute=0, tzinfo=ZoneInfo("America/New_York")))
+async def earnings_report():
+    """Every Sunday at 7 PM ET: shift each stock's dynamic base toward its weekly average."""
+    if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 6:
+        return
+
+    eco = load_economy()
+    init_market(eco)
+    all_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
+    lines = ["📰 **WEEKLY EARNINGS REPORT** 📰\n"]
+
+    for ticker, info in all_stocks.items():
+        mdata = eco["market"].get(ticker)
+        if not mdata:
+            continue
+
+        old_base = mdata.get("dynamic_base", info["base_price"])
+        history = mdata.get("price_history", [mdata["price"]])
+        recent_avg = sum(history) / len(history)
+
+        # Shift base 30% toward the weekly average, capped at ±10% per week
+        raw_new_base = old_base * 0.70 + recent_avg * 0.30
+        max_shift = old_base * 0.10
+        new_base = max(old_base - max_shift, min(old_base + max_shift, raw_new_base))
+        new_base = round(new_base, 2)
+        mdata["dynamic_base"] = new_base
+
+        change_pct = round((new_base - old_base) / old_base * 100, 1)
+        if abs(change_pct) < 0.1:
+            rating = "➡️ HOLD"
+        elif change_pct >= 5:
+            rating = "🚀 STRONG BUY"
+        elif change_pct >= 2:
+            rating = "📈 BUY"
+        elif change_pct <= -5:
+            rating = "💀 STRONG SELL"
+        elif change_pct <= -2:
+            rating = "📉 SELL"
+        else:
+            rating = "🟡 NEUTRAL"
+
+        lines.append(
+            f"**${ticker}** — Base: **${old_base:.2f} → ${new_base:.2f}** ({change_pct:+.1f}%)  {rating}"
+        )
+
+    save_economy(eco)
+    msg = "\n".join(lines)
+    for _, ch in _get_guild_channels():
+        try:
+            await ch.send(msg)
+        except Exception:
+            pass
+
+
 @tasks.loop(time=datetime.time(hour=21, minute=0, tzinfo=ZoneInfo("America/New_York")))
 async def weekly_recap():
     today = datetime.datetime.now(datetime.timezone.utc).weekday()
@@ -2018,7 +2075,7 @@ async def meme_stock_drift():
     for ticker, info in all_drift_stocks.items():
         mdata = eco["market"][ticker]
         price = mdata["price"]
-        base = info["base_price"]
+        base = mdata.get("dynamic_base", info["base_price"])
         vol = info["volatility"]
         daily_vol = info["daily_volume"]
 
@@ -2523,6 +2580,7 @@ async def on_ready():
         print(f"[TARGET] Restored from economy.json: {TARGET_NAME} / {TARGET_USERNAMES} / ${TARGET_STOCK_TICKER}")
 
     scheduled_roast.start()
+    earnings_report.start()
     weekly_recap.start()
     weekly_vote_start.start()
     weekly_vote_end.start()
@@ -3368,7 +3426,8 @@ async def stock_trend(ctx, ticker: str = None):
     info = all_stocks.get(ticker, _TARGET_STOCK_DEFAULTS)
     history = mdata.get("price_history", [mdata["price"]])
     current = mdata["price"]
-    base = info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"])
+    base = mdata.get("dynamic_base", info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"]))
+    static_base = info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"])
 
     # Sparkline (last 24 ticks = 4 hours, trimmed to fit Discord)
     spark_prices = history[-24:]
@@ -3409,9 +3468,11 @@ async def stock_trend(ctx, ticker: str = None):
     hi = max(history)
     lo = min(history)
 
-    # Distance from base price
+    # Distance from dynamic base (and drift from original)
     from_base = round((current - base) / base * 100, 1)
-    base_str = f"{from_base:+.1f}% from base (${base:.2f})"
+    base_drift = round((base - static_base) / static_base * 100, 1)
+    drift_str = f"  *(drifted {base_drift:+.1f}% from original ${static_base:.2f})*" if abs(base_drift) >= 0.1 else ""
+    base_str = f"{from_base:+.1f}% from base (${base:.2f}){drift_str}"
 
     # Short interest
     shorted = sum(
@@ -3543,6 +3604,7 @@ async def commands_list(ctx):
         f"**📋 {tn} Hate Bot — Commands (3/3)**\n\n"
         "**📈 Stock Market**\n"
         f"**`!stockmarket`** — View current prices for all stocks (${ticker}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
+        "**`!stocktrend <TICKER>`** — Sparkline chart, 30min/2hr/8hr performance, momentum indicator, and range for any stock.\n"
         "**`!buystock <TICKER> <shares>`** — Buy shares at market price.\n"
         "**`!sellstock <TICKER> <shares>`** — Sell shares you own.\n"
         "**`!short <TICKER> <shares>`** — Open a short position (profit if price drops).\n"
