@@ -2,6 +2,7 @@ import os
 import secrets
 import datetime
 import traceback
+import html
 import aiohttp.web
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
@@ -130,6 +131,11 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         if not _check_auth(request):
             return aiohttp.web.HTTPFound("/login")
         eco = load_eco()
+        msg = ""
+        if request.rel_url.query.get("ok"):
+            msg = f'<div class="msg ok">{html.escape(request.rel_url.query["ok"])}</div>'
+        if request.rel_url.query.get("err"):
+            msg = f'<div class="msg err">{html.escape(request.rel_url.query["err"])}</div>'
         balances = eco.get("balances", {})
         total_coins = sum(balances.values())
         rotation, expires = get_shop()
@@ -160,7 +166,32 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 f"<td>{price:.2f}</td></tr>"
             )
 
+        guild_targets = eco.get("guild_targets", {})
+        target_forms = ""
+        for guild in sorted(bot.guilds, key=lambda g: g.name):
+            tgt = guild_targets.get(str(guild.id), {})
+            t_name = html.escape(tgt.get("name", ""))
+            t_users = html.escape(", ".join(tgt.get("usernames", [])))
+            t_ticker = html.escape(tgt.get("ticker", ""))
+            target_forms += f"""
+<div class="panel">
+  <h2 style="margin-top:0">{html.escape(guild.name)} <span class="muted" style="font-size:.8em">({guild.id})</span></h2>
+  <form method="post" action="/api/settarget">
+    <input type="hidden" name="guild_id" value="{guild.id}">
+    <div class="form-row">
+      <label>Name</label>
+      <input type="text" name="name" value="{t_name}" placeholder="Donovan" style="min-width:220px">
+      <label>Usernames</label>
+      <input type="text" name="usernames" value="{t_users}" placeholder="Donovan, donovan123" style="min-width:280px">
+      <label>Ticker</label>
+      <input type="text" name="ticker" value="{t_ticker}" placeholder="DONOVAN" style="width:120px">
+      <input type="submit" class="btn" value="Save Target">
+    </div>
+  </form>
+</div>"""
+
         body = f"""
+{msg}
 <div class="cards">
   <div class="card"><div class="val">{len(balances)}</div><div class="label">Users</div></div>
   <div class="card"><div class="val">{total_coins:,.0f}</div><div class="label">Coins in circulation</div></div>
@@ -179,8 +210,37 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
 <h2>Stock Prices</h2>
 <table><thead><tr><th>Ticker</th><th>Name</th><th>Price</th></tr></thead>
 <tbody>{stock_rows}</tbody></table>
+
+<h2>Server Targets</h2>
+{target_forms}
 """
         return _page("Dashboard", body)
+
+    async def handle_settarget_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        data = await request.post()
+        guild_id = data.get("guild_id", "").strip()
+        name = data.get("name", "").strip()
+        usernames_raw = data.get("usernames", "").strip()
+        ticker = data.get("ticker", "").strip().upper()
+        if not guild_id:
+            return aiohttp.web.HTTPFound("/?err=Missing+guild+id")
+        if not name:
+            return aiohttp.web.HTTPFound("/?err=Name+is+required")
+        usernames = [u.strip() for u in usernames_raw.split(",") if u.strip()]
+        if not usernames:
+            return aiohttp.web.HTTPFound("/?err=At+least+one+username+is+required")
+        if not ticker:
+            ticker = name.upper()[:8]
+        eco = load_eco()
+        eco.setdefault("guild_targets", {})[guild_id] = {
+            "name": name,
+            "usernames": usernames,
+            "ticker": ticker,
+        }
+        save_eco(eco)
+        return aiohttp.web.HTTPFound("/?ok=Target+saved")
 
     # ── Economy ──────────────────────────────────────────────────────────────
 
@@ -536,6 +596,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_post("/login", handle_login_post)
     app.router.add_get("/logout", handle_logout)
     app.router.add_get("/", handle_dashboard)
+    app.router.add_post("/api/settarget", handle_settarget_api)
     app.router.add_get("/economy", handle_economy)
     app.router.add_post("/api/coins", handle_coins_api)
     app.router.add_get("/shop", handle_shop)
