@@ -221,8 +221,9 @@ tts_queue = asyncio.Queue()
 trial_active = False
 guess_game_active = False
 trivia_active = False
-trivia_recent = {}        # channel_id -> last 8 question strings
-trivia_recent_cats = {}   # channel_id -> last 4 categories
+trivia_recent = {}        # channel_id -> last 20 question strings
+trivia_recent_answers = {}  # channel_id -> last 20 answers (for smarter dedup)
+trivia_recent_cats = {}   # channel_id -> last 8 categories
 guessroast_active = False
 highlow_games = {}
 blackjack_games = {}
@@ -1646,16 +1647,34 @@ TRIVIA_CATEGORIES = [
     "video games",
     "sports and athletes",
     "space and astronomy",
+    "animals and wildlife",
+    "famous inventions",
+    "world records",
+    "language and linguistics",
+    "economics and business",
+    "architecture and landmarks",
+    "famous crimes and mysteries",
+    "television sitcoms",
+    "80s and 90s culture",
+    "board games and card games",
+    "famous speeches and quotes",
+    "medical science",
+    "cars and transportation",
+    "awards and achievements",
+    "internet and social media",
 ]
 
 
-async def generate_trivia_question(used_topics=None, used_categories=None):
+async def generate_trivia_question(used_topics=None, used_categories=None, used_answers=None):
     import re
     # Avoid repeating recent categories
     available = [c for c in TRIVIA_CATEGORIES if not used_categories or c not in used_categories]
     category = random.choice(available or TRIVIA_CATEGORIES)
-    avoid = (f"\nDo NOT generate questions about these already-asked topics: {'; '.join(used_topics)}."
-             if used_topics else "")
+    # Pass recent answers (compact) rather than full question text — more effective dedup
+    avoid_answers = (
+        f"\nDo NOT use any of these answers or subjects (already used recently): {', '.join(used_answers[-20:])}."
+        if used_answers else ""
+    )
     try:
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -1669,7 +1688,10 @@ async def generate_trivia_question(used_topics=None, used_categories=None):
                         "- The answer must be a single word, number, or short phrase (3 words max)\n"
                         "- The answer must be at least 2 characters — no single-letter answers\n"
                         "- Avoid questions with multiple valid answers\n"
-                        f"{avoid}\n"
+                        "- AVOID the single most obvious or overused question for this category "
+                        "(e.g. not 'Who painted the Mona Lisa' for art, not 'What language did Brendan Eich create' for tech). "
+                        "Pick something more interesting and varied.\n"
+                        f"{avoid_answers}\n"
                         "Respond in EXACTLY this format:\n"
                         "QUESTION: <question>\n"
                         "ANSWER: <answer>"
@@ -3176,13 +3198,16 @@ async def trivia(ctx):
     trivia_active = True
     try:
         recent_q = trivia_recent.get(ctx.channel.id, [])
+        recent_ans = trivia_recent_answers.get(ctx.channel.id, [])
         recent_cats = trivia_recent_cats.get(ctx.channel.id, [])
         question, answer, category = await generate_trivia_question(
             used_topics=recent_q or None,
             used_categories=recent_cats or None,
+            used_answers=recent_ans or None,
         )
-        trivia_recent[ctx.channel.id] = (recent_q + [question])[-8:]
-        trivia_recent_cats[ctx.channel.id] = (recent_cats + [category])[-4:]
+        trivia_recent[ctx.channel.id] = (recent_q + [question])[-20:]
+        trivia_recent_answers[ctx.channel.id] = (recent_ans + [answer])[-20:]
+        trivia_recent_cats[ctx.channel.id] = (recent_cats + [category])[-8:]
         await ctx.send(
             f"🧠 **TRIVIA** _{category.title()}_ — First to answer wins **50 coins!**\n\n"
             f"_{question}_\n\nYou have 30 seconds!"
