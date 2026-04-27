@@ -999,8 +999,7 @@ def update_stocks_on_roast(user_id):
     eco["stocks"] = stocks
 
     init_market(eco)
-    eco["market"][TARGET_STOCK_TICKER]["prev_price"] = eco["market"][TARGET_STOCK_TICKER]["price"]
-    eco["market"][TARGET_STOCK_TICKER]["price"] = max(round(eco["market"][TARGET_STOCK_TICKER]["price"] - drop, 2), 0.01)
+    _apply_price_event(eco["market"][TARGET_STOCK_TICKER], eco["market"][TARGET_STOCK_TICKER]["price"] - drop)
     eco["market"][TARGET_STOCK_TICKER]["last_updated"] = now
 
     save_economy(eco)
@@ -1051,8 +1050,7 @@ def apply_price_impact(eco, ticker, shares, direction):
     outstanding = MARKET_STOCKS[ticker]["shares_outstanding"]
     impact_pct = (shares / outstanding) * 15.0 * direction
     old = eco["market"][ticker]["price"]
-    eco["market"][ticker]["prev_price"] = old
-    eco["market"][ticker]["price"] = max(round(old * (1 + impact_pct / 100), 2), 0.01)
+    _apply_price_event(eco["market"][ticker], old * (1 + impact_pct / 100))
     eco["market"][ticker]["volume_today"] = eco["market"][ticker].get("volume_today", 0) + shares
     eco["market"][ticker]["last_updated"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -2404,9 +2402,7 @@ async def margin_call_checker():
             continue
         spike_pct = random.uniform(15, 30)
         old = eco["market"][ticker]["price"]
-        new = round(old * (1 + spike_pct / 100), 2)
-        eco["market"][ticker]["prev_price"] = old
-        eco["market"][ticker]["price"] = new
+        _apply_price_event(eco["market"][ticker], old * (1 + spike_pct / 100))
         eco["market"][ticker]["last_squeeze"] = now.isoformat()
         squeeze_msgs.append((ticker, old, new, round(shorted / outstanding * 100, 1), spike_pct))
 
@@ -2493,8 +2489,7 @@ async def _apply_roast_stock_impact(guild_id):
     moves = {}
 
     old = eco["market"][roasted_ticker]["price"]
-    eco["market"][roasted_ticker]["prev_price"] = old
-    eco["market"][roasted_ticker]["price"] = max(round(old * (1 + drop_pct / 100), 2), 0.01)
+    _apply_price_event(eco["market"][roasted_ticker], old * (1 + drop_pct / 100))
     eco["market"][roasted_ticker]["last_updated"] = now_iso
     moves[roasted_ticker] = (old, eco["market"][roasted_ticker]["price"], drop_pct, roasted_tgt["name"])
 
@@ -2503,8 +2498,7 @@ async def _apply_roast_stock_impact(guild_id):
         if not ticker or ticker == roasted_ticker or ticker not in eco["market"]:
             continue
         old = eco["market"][ticker]["price"]
-        eco["market"][ticker]["prev_price"] = old
-        eco["market"][ticker]["price"] = max(round(old * (1 + boost_pct / 100), 2), 0.01)
+        _apply_price_event(eco["market"][ticker], old * (1 + boost_pct / 100))
         eco["market"][ticker]["last_updated"] = now_iso
         moves[ticker] = (old, eco["market"][ticker]["price"], boost_pct, tgt["name"])
 
