@@ -2114,7 +2114,7 @@ async def _post_hate_vote(channel=None):
         await msg.add_reaction(VOTE_EMOJIS[i])
 
     eco = load_economy()
-    eco["active_vote"] = {
+    eco.setdefault("active_votes", {})[str(guild.id)] = {
         "message_id": msg.id,
         "channel_id": channel.id,
         "candidates": eco_candidates,
@@ -2122,56 +2122,76 @@ async def _post_hate_vote(channel=None):
     save_economy(eco)
 
 
-async def _tally_hate_vote():
-    """Read reactions on the vote message, update the target to the winner."""
+async def _tally_hate_vote(guild_id=None):
+    """Read reactions on the vote message, update the target to the winner.
+
+    If guild_id is given, tally only that guild's vote.  Otherwise tally all.
+    """
     eco = load_economy()
-    vote_data = eco.get("active_vote")
-    if not vote_data:
-        return
+    active_votes = eco.get("active_votes") or {}
 
-    channel = bot.get_channel(vote_data["channel_id"])
-    if not channel:
-        return
+    # Support the legacy single-vote key so old data isn't lost on upgrade.
+    if not active_votes and eco.get("active_vote"):
+        legacy = eco["active_vote"]
+        ch = bot.get_channel(legacy["channel_id"])
+        if ch and ch.guild:
+            active_votes = {str(ch.guild.id): legacy}
 
-    try:
-        msg = await channel.fetch_message(vote_data["message_id"])
-    except Exception:
-        return
+    if guild_id is not None:
+        gids = [str(guild_id)]
+    else:
+        gids = list(active_votes.keys())
 
-    # Map emoji → reaction count (subtract 1 for the bot's own seed reaction)
-    counts = {str(r.emoji): max(0, r.count - 1) for r in msg.reactions}
+    for gid_str in gids:
+        vote_data = active_votes.get(gid_str)
+        if not vote_data:
+            continue
 
-    candidates = vote_data["candidates"]
-    winner = max(candidates, key=lambda c: counts.get(c["emoji"], 0))
-    top_votes = counts.get(winner["emoji"], 0)
+        channel = bot.get_channel(vote_data["channel_id"])
+        if not channel:
+            eco.get("active_votes", {}).pop(gid_str, None)
+            continue
 
-    eco.pop("active_vote", None)
-    save_economy(eco)
+        try:
+            msg = await channel.fetch_message(vote_data["message_id"])
+        except Exception:
+            eco.get("active_votes", {}).pop(gid_str, None)
+            continue
 
-    if top_votes == 0:
+        # Map emoji → reaction count (subtract 1 for the bot's own seed reaction)
+        counts = {str(r.emoji): max(0, r.count - 1) for r in msg.reactions}
+
+        candidates = vote_data["candidates"]
+        winner = max(candidates, key=lambda c: counts.get(c["emoji"], 0))
+        top_votes = counts.get(winner["emoji"], 0)
+
+        eco.setdefault("active_votes", {}).pop(gid_str, None)
+        eco.pop("active_vote", None)  # clean up legacy key if present
+        save_economy(eco)
+
+        if top_votes == 0:
+            await channel.send(
+                "🗳️ **VOTE RESULTS**\nNobody voted. The current target carries over by default. Embarrassing turnout."
+            )
+            continue
+
+        g_id = channel.guild.id if channel.guild else None
+        old_tgt = get_guild_target(g_id)
+        old_name = old_tgt["name"]
+        update_target(winner["name"], [winner["username"]], guild_id=g_id)
+
+        board = []
+        for c in sorted(candidates, key=lambda c: counts.get(c["emoji"], 0), reverse=True):
+            v = counts.get(c["emoji"], 0)
+            bar = "█" * v if v else "░"
+            board.append(f"{c['emoji']} **{c['name']}** — {v} vote{'s' if v != 1 else ''}  {bar}")
+
         await channel.send(
-            "🗳️ **VOTE RESULTS**\nNobody voted. The current target carries over by default. Embarrassing turnout."
+            f"🗳️ **VOTE RESULTS**\n\n"
+            + "\n".join(board)
+            + f"\n\n👑 **{winner['name']}** wins with **{top_votes} vote{'s' if top_votes != 1 else ''}**.\n"
+            f"{old_name} gets a temporary reprieve. {winner['name']} — your time starts now."
         )
-        return
-
-    guild_id = channel.guild.id if channel.guild else None
-    old_tgt = get_guild_target(guild_id)
-    old_name = old_tgt["name"]
-    update_target(winner["name"], [winner["username"]], guild_id=guild_id)
-
-    # Build a scoreboard
-    board = []
-    for c in sorted(candidates, key=lambda c: counts.get(c["emoji"], 0), reverse=True):
-        v = counts.get(c["emoji"], 0)
-        bar = "█" * v if v else "░"
-        board.append(f"{c['emoji']} **{c['name']}** — {v} vote{'s' if v != 1 else ''}  {bar}")
-
-    await channel.send(
-        f"🗳️ **VOTE RESULTS**\n\n"
-        + "\n".join(board)
-        + f"\n\n👑 **{winner['name']}** wins with **{top_votes} vote{'s' if top_votes != 1 else ''}**.\n"
-        f"{old_name} gets a temporary reprieve. {winner['name']} — your time starts now."
-    )
 
 
 @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=ZoneInfo("America/New_York")))
@@ -2194,9 +2214,12 @@ async def weekly_vote_end():
 @commands.has_permissions(administrator=True)
 async def start_vote(ctx):
     """Manually open a hate vote in the current channel."""
+    if not ctx.guild:
+        await ctx.send("This command must be used in a server.")
+        return
     eco = load_economy()
-    if eco.get("active_vote"):
-        await ctx.send("⚠️ A vote is already running. Use `!tallyvote` to close it first.")
+    if eco.get("active_votes", {}).get(str(ctx.guild.id)):
+        await ctx.send("⚠️ A vote is already running in this server. Use `!tallyvote` to close it first.")
         return
     await _post_hate_vote(ctx.channel)
 
@@ -2205,11 +2228,14 @@ async def start_vote(ctx):
 @commands.has_permissions(administrator=True)
 async def tally_vote(ctx):
     """Manually close and tally the current vote."""
-    eco = load_economy()
-    if not eco.get("active_vote"):
-        await ctx.send("No active vote to tally.")
+    if not ctx.guild:
+        await ctx.send("This command must be used in a server.")
         return
-    await _tally_hate_vote()
+    eco = load_economy()
+    if not eco.get("active_votes", {}).get(str(ctx.guild.id)):
+        await ctx.send("No active vote to tally in this server.")
+        return
+    await _tally_hate_vote(guild_id=ctx.guild.id)
 
 
 @bot.command(name="currenttarget")
