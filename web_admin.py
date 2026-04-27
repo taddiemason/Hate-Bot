@@ -417,13 +417,22 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             cur_name = current.get("name", cur_ticker)
             if cur_ticker:
                 price_t = eco.get("market", {}).get(cur_ticker, {}).get("price", 0.0)
+                cur_delist_action = (
+                    f'<form method="post" action="/api/deliststock" style="display:inline">'
+                    f'<input type="hidden" name="guild_id" value="{gid}">'
+                    f'<input type="hidden" name="ticker" value="{html.escape(cur_ticker)}">'
+                    f'<input type="hidden" name="source" value="current">'
+                    f'<input type="submit" class="btn danger" value="Delist" '
+                    f'onclick="return confirm(\'Start 48hr delist countdown for {html.escape(cur_ticker)}? The stock will be auto-liquidated after the grace period.\')">'
+                    f'</form>'
+                )
                 target_rows += (
                     f"<tr><td><b>{html.escape(cur_ticker)}</b></td>"
                     f"<td>{html.escape(cur_name)}</td>"
                     f"<td>{guild_name}</td>"
                     f"<td>{price_t:.2f}</td>"
                     f"<td><span style='color:#7c83fd'>Current Target</span></td>"
-                    f"<td></td></tr>"
+                    f"<td>{cur_delist_action}</td></tr>"
                 )
 
             # Historical targets for this guild
@@ -485,18 +494,40 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         data = await request.post()
         guild_id = data.get("guild_id", "").strip()
         ticker = data.get("ticker", "").strip().upper()
+        source = data.get("source", "history")
         if not guild_id or not ticker:
             return aiohttp.web.HTTPFound("/stocks?err=Missing+parameters")
         eco = load_eco()
-        history = eco.get("target_history", {}).get(guild_id, [])
-        found = False
-        for entry in history:
-            if entry.get("ticker") == ticker and not entry.get("delisted_at"):
-                entry["delisted_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-                found = True
-                break
-        if not found:
-            return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+not+found+or+already+delisting")
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        if source == "current":
+            # Archive the current target into target_history with delisted_at set now
+            current = eco.get("guild_targets", {}).get(guild_id, {})
+            if not current or current.get("ticker", "").upper() != ticker:
+                return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+is+not+the+current+target+for+this+server")
+            history = eco.setdefault("target_history", {}).setdefault(guild_id, [])
+            # Avoid duplicate if already queued
+            for entry in history:
+                if entry.get("ticker", "").upper() == ticker and entry.get("delisted_at"):
+                    return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+already+queued+for+delisting")
+            history.append({
+                "name": current.get("name", ticker),
+                "usernames": current.get("usernames", []),
+                "ticker": ticker,
+                "delisted_at": now_iso,
+            })
+        else:
+            # Historical entry — just set delisted_at
+            history = eco.get("target_history", {}).get(guild_id, [])
+            found = False
+            for entry in history:
+                if entry.get("ticker") == ticker and not entry.get("delisted_at"):
+                    entry["delisted_at"] = now_iso
+                    found = True
+                    break
+            if not found:
+                return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+not+found+or+already+delisting")
+
         save_eco(eco)
         return aiohttp.web.HTTPFound(f"/stocks?ok={ticker}+marked+for+delisting+%2848hr+grace+period+started%29")
 
