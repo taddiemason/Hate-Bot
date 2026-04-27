@@ -122,6 +122,7 @@ These commands require the **Administrator** server permission.
 | `!settarget <name> <username> [ticker]` | Set who gets roasted in this server. `name` is the display name, `username` is their Discord username (lowercase, no `#`), and `ticker` is the optional stock symbol (defaults to the first 8 letters of the name). |
 | `!startvote` | Manually open a hate-vote poll in the current channel. |
 | `!tallyvote` | Close and tally the currently running hate vote. |
+| `!togglevoteswitch` | Toggle whether the vote winner becomes the new roast target. When disabled, votes still run and show results but the target stays fixed. Defaults to **enabled**. |
 | `!resetshop` | Force-reset the shop rotation immediately and pick a new set of items. |
 | `!update` | Pull the latest code from GitHub and restart the bot automatically. |
 
