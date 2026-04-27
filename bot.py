@@ -507,16 +507,50 @@ _TARGET_STOCK_DEFAULTS = {
 
 
 def _get_target_stock_info(eco):
-    """Return {ticker: metadata} for guild target stocks not already in MARKET_STOCKS."""
+    """Return {ticker: metadata} for all active guild target stocks.
+
+    Includes current targets and historical targets still within their 48-hour
+    delist grace period.
+    """
     result = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    delist_grace = datetime.timedelta(hours=48)
+
     for tgt in eco.get("guild_targets", {}).values():
         ticker = (tgt.get("ticker") or "").upper()
         if not ticker or ticker in MARKET_STOCKS or ticker in result:
             continue
-        result[ticker] = {
-            "name": f"{tgt['name']} Holdings",
-            **_TARGET_STOCK_DEFAULTS,
-        }
+        result[ticker] = {"name": f"{tgt['name']} Holdings", **_TARGET_STOCK_DEFAULTS}
+
+    for guild_history in eco.get("target_history", {}).values():
+        for entry in guild_history:
+            ticker = (entry.get("ticker") or "").upper()
+            if not ticker or ticker in MARKET_STOCKS or ticker in result:
+                continue
+            delisted_at = entry.get("delisted_at")
+            if delisted_at:
+                deadline = datetime.datetime.fromisoformat(delisted_at) + delist_grace
+                if now > deadline:
+                    continue  # grace period over — skip
+            result[ticker] = {"name": f"{entry['name']} Holdings", **_TARGET_STOCK_DEFAULTS}
+
+    return result
+
+
+def _get_delisted_stocks(eco):
+    """Return {ticker: deadline_datetime} for stocks currently in their delist grace window."""
+    result = {}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    delist_grace = datetime.timedelta(hours=48)
+    for guild_history in eco.get("target_history", {}).values():
+        for entry in guild_history:
+            ticker = (entry.get("ticker") or "").upper()
+            delisted_at_str = entry.get("delisted_at")
+            if not ticker or not delisted_at_str:
+                continue
+            deadline = datetime.datetime.fromisoformat(delisted_at_str) + delist_grace
+            if now <= deadline:
+                result[ticker] = deadline
     return result
 
 
@@ -1278,12 +1312,37 @@ def get_guild_config(guild_id):
     return {"roast_channel": ROAST_CHANNEL_ID, "voice_channel": VOICE_CHANNEL_ID}
 
 
+_MAX_ACTIVE_TARGET_HISTORY = 10
+
+
 def set_guild_target(guild_id, name, usernames, ticker=None):
     eco = load_economy()
-    eco.setdefault("guild_targets", {})[str(guild_id)] = {
+    gid_str = str(guild_id)
+    new_ticker = (ticker or name.upper()[:8]).upper()
+
+    # Archive the outgoing target to history before replacing it
+    current = eco.get("guild_targets", {}).get(gid_str)
+    if current and current.get("ticker", "").upper() != new_ticker:
+        history = eco.setdefault("target_history", {}).setdefault(gid_str, [])
+        existing_tickers = {e["ticker"].upper() for e in history}
+        if current["ticker"].upper() not in existing_tickers:
+            history.append({
+                "name": current["name"],
+                "ticker": current["ticker"].upper(),
+                "usernames": current.get("usernames", []),
+                "delisted_at": None,
+            })
+
+        # If more than 10 active (non-delisted) history entries, delist the oldest
+        active = [e for e in history if e.get("delisted_at") is None]
+        if len(active) > _MAX_ACTIVE_TARGET_HISTORY:
+            now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            active[0]["delisted_at"] = now_iso
+
+    eco.setdefault("guild_targets", {})[gid_str] = {
         "name": name,
         "usernames": [u.strip().lower() for u in usernames if u.strip()],
-        "ticker": ticker or name.upper()[:8],
+        "ticker": new_ticker,
     }
     save_economy(eco)
 
@@ -2022,6 +2081,33 @@ async def meme_stock_drift():
     now = datetime.datetime.now(datetime.timezone.utc)
     broadcast_channels = _get_guild_channels()
     mstate = eco["market_state"]
+
+    # ── Delist cleanup: auto-liquidate and remove expired target stocks ───────
+    delist_grace = datetime.timedelta(hours=48)
+    for gid_str, history in eco.get("target_history", {}).items():
+        still_active = []
+        for entry in history:
+            delisted_at_str = entry.get("delisted_at")
+            if not delisted_at_str:
+                still_active.append(entry)
+                continue
+            deadline = datetime.datetime.fromisoformat(delisted_at_str) + delist_grace
+            if now <= deadline:
+                still_active.append(entry)
+                continue
+            # Grace period over — liquidate all holders at last known price
+            ticker = entry.get("ticker", "").upper()
+            last_price = eco.get("market", {}).get(ticker, {}).get("price")
+            if ticker and last_price:
+                for uid, port in eco.get("portfolios", {}).items():
+                    shares_held = port.get(ticker, {}).get("shares", 0)
+                    if shares_held > 0:
+                        payout = round(shares_held * last_price)
+                        eco["balances"][uid] = eco.get("balances", {}).get(uid, 0) + payout
+                        port.pop(ticker, None)
+                eco["market"].pop(ticker, None)
+            # Drop from target_history (don't keep in still_active)
+        eco["target_history"][gid_str] = still_active
 
     # ── Resolve pending rumors ────────────────────────────────────────────────
     still_pending = []
@@ -3514,6 +3600,8 @@ async def stock_market(ctx):
     lines = [f"📊 **{tgt_ticker} STOCK EXCHANGE**\n"]
 
     target_stocks = _get_target_stock_info(eco)
+    delisted = _get_delisted_stocks(eco)
+    now_dt = datetime.datetime.now(datetime.timezone.utc)
     all_display_stocks = {**MARKET_STOCKS, **target_stocks}
 
     for ticker, info in all_display_stocks.items():
@@ -3536,10 +3624,21 @@ async def stock_market(ctx):
         outstanding = info.get("shares_outstanding", _TARGET_STOCK_DEFAULTS["shares_outstanding"])
         si_pct = round(shorted / outstanding * 100, 1) if outstanding else 0
         si_str = f"  🔥 SI: {si_pct}%" if si_pct > 0 else ""
-        label = "🎯 " if ticker in target_stocks else ""
+
+        if ticker in delisted:
+            hrs_left = max(0, round((delisted[ticker] - now_dt).total_seconds() / 3600, 1))
+            label = f"🪦 "
+            delist_str = f"  *(delisted — {hrs_left}h to sell)*"
+        elif ticker in target_stocks and ticker not in delisted:
+            label = "🎯 "
+            delist_str = ""
+        else:
+            label = ""
+            delist_str = ""
+
         lines.append(
             f"{label}**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%)  "
-            f"`{spark}`  Vol: {vol}{si_str}"
+            f"`{spark}`  Vol: {vol}{si_str}{delist_str}"
         )
 
     # Top portfolio holders
