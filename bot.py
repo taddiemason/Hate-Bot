@@ -3059,8 +3059,10 @@ async def stock_market(ctx):
     eco = load_economy()
     init_market(eco)
     save_economy(eco)
+    gid = ctx.guild.id if ctx.guild else None
+    tgt_ticker = get_guild_target(gid)["ticker"]
 
-    lines = [f"📊 **{TARGET_STOCK_TICKER} STOCK EXCHANGE**\n"]
+    lines = [f"📊 **{tgt_ticker} STOCK EXCHANGE**\n"]
 
     for ticker, info in MARKET_STOCKS.items():
         mdata = eco["market"][ticker]
@@ -3716,7 +3718,9 @@ async def sell_stock(ctx, ticker: str = None, shares: int = None):
 @bot.command(name="short")
 async def short_stock(ctx, ticker: str = None, shares: int = None):
     if not ticker or not shares or shares <= 0:
-        await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${TARGET_STOCK_TICKER}` is shortable.")
+        gid = ctx.guild.id if ctx.guild else None
+        tgt_ticker = get_guild_target(gid)["ticker"]
+        await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${tgt_ticker}` is shortable.")
         return
     ticker = ticker.upper()
     if ticker not in MARKET_STOCKS:
