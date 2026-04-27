@@ -4079,7 +4079,7 @@ async def toggle_tts(ctx, state: str = None):
 async def update_bot(ctx):
     import subprocess
     await ctx.send("⬇️ Pulling latest changes...")
-    result = subprocess.run(["git", "pull", "origin", "claude/fix-sports-trivia-HBbRZ"], capture_output=True, text=True)
+    result = subprocess.run(["git", "pull", "origin", "main"], capture_output=True, text=True)
     output = result.stdout.strip() or result.stderr.strip() or "No output."
     await ctx.send(f"```{output}```")
     if result.returncode != 0:
