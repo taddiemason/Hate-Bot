@@ -3612,7 +3612,7 @@ async def stock_trend(ctx, ticker: str = None):
         await ctx.send("Usage: `!stocktrend <TICKER>` — e.g. `!stocktrend DONOVAN`")
         return
 
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if ticker not in eco["market"]:
         await ctx.send(f"Unknown ticker **${ticker}**. Check `!stockmarket` for valid tickers.")
         return
@@ -4388,7 +4388,7 @@ async def buy_stock(ctx, ticker: str = None, shares: int = None):
     if not ticker or not shares or shares <= 0:
         await ctx.send("Usage: `!buystock <TICKER> <shares>` — e.g. `!buystock DONOVAN 10`")
         return
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if ticker not in MARKET_STOCKS:
         await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in MARKET_STOCKS)}")
         return
@@ -4404,7 +4404,7 @@ async def sell_stock(ctx, ticker: str = None, shares: int = None):
     if not ticker or not shares or shares <= 0:
         await ctx.send("Usage: `!sellstock <TICKER> <shares>` — e.g. `!sellstock DONOVAN 10`")
         return
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if ticker not in MARKET_STOCKS:
         await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in MARKET_STOCKS)}")
         return
@@ -4422,7 +4422,7 @@ async def short_stock(ctx, ticker: str = None, shares: int = None):
         tgt_ticker = get_guild_target(gid)["ticker"]
         await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${tgt_ticker}` is shortable.")
         return
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if ticker not in MARKET_STOCKS:
         await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in MARKET_STOCKS)}")
         return
@@ -4438,7 +4438,7 @@ async def cover_short(ctx, ticker: str = None, shares: int = None):
     if not ticker or not shares or shares <= 0:
         await ctx.send("Usage: `!cover <TICKER> <shares>` — e.g. `!cover DONOVAN 10`")
         return
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if ticker not in MARKET_STOCKS:
         await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in MARKET_STOCKS)}")
         return
@@ -4458,7 +4458,7 @@ async def limit_order(ctx, order_type: str = None, ticker: str = None, shares: i
         )
         return
     order_type = order_type.lower()
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if order_type not in ("buy", "sell", "short", "cover"):
         await ctx.send("Order type must be `buy`, `sell`, `short`, or `cover`.")
         return
@@ -4568,7 +4568,7 @@ async def futures_cmd(ctx, direction: str = None, ticker: str = None, contracts:
         )
         return
     direction = direction.lower()
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if direction not in ("long", "short"):
         await ctx.send("Direction must be `long` or `short`.")
         return
@@ -4671,7 +4671,7 @@ async def buy_option_cmd(ctx, option_type: str = None, ticker: str = None, contr
         )
         return
     option_type = option_type.lower()
-    ticker = ticker.upper()
+    ticker = ticker.lstrip("$").upper()
     if option_type not in ("call", "put"):
         await ctx.send("Option type must be `call` or `put`.")
         return
