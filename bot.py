@@ -1206,16 +1206,37 @@ def _get_guild_channels():
     eco = load_economy()
     configs = eco.get("guild_configs", {})
     result = []
+    seen_guild_ids = set()
+
     for gid_str, cfg in configs.items():
         ch_id = cfg.get("roast_channel")
         if ch_id:
             ch = bot.get_channel(ch_id)
             if ch:
                 result.append((int(gid_str), ch))
-    if not result and ROAST_CHANNEL_ID:
-        ch = bot.get_channel(ROAST_CHANNEL_ID)
+                seen_guild_ids.add(int(gid_str))
+
+    # For every guild the bot is in that hasn't run !setup, fall back to a
+    # suitable channel so events reach all servers, not just configured ones.
+    for guild in bot.guilds:
+        if guild.id in seen_guild_ids:
+            continue
+        # Prefer the env-var channel if it belongs to this guild
+        if ROAST_CHANNEL_ID:
+            ch = bot.get_channel(ROAST_CHANNEL_ID)
+            if ch and getattr(ch, "guild", None) and ch.guild.id == guild.id:
+                result.append((guild.id, ch))
+                continue
+        # Otherwise use the guild's system channel or first writable text channel
+        ch = guild.system_channel
+        if ch is None or not ch.permissions_for(guild.me).send_messages:
+            ch = next(
+                (c for c in guild.text_channels if c.permissions_for(guild.me).send_messages),
+                None,
+            )
         if ch:
-            result.append((None, ch))
+            result.append((guild.id, ch))
+
     return result
 
 
