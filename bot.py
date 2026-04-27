@@ -1156,7 +1156,8 @@ def spend_coins(user_id, amount):
 def record_trivia_win(user_id):
     eco = load_economy()
     uid = str(user_id)
-    eco.setdefault("trivia_wins", {})[uid] = eco["trivia_wins"].get(uid, 0) + 1
+    trivia_wins = eco.setdefault("trivia_wins", {})
+    trivia_wins[uid] = trivia_wins.get(uid, 0) + 1
     save_economy(eco)
 
 
@@ -1555,9 +1556,16 @@ def get_donovan_voice_channel(guild):
         if member.name.lower() in tgt_usernames and member.voice:
             return member.voice.channel
     cfg = get_guild_config(gid)
-    vc_id = cfg.get("voice_channel") or VOICE_CHANNEL_ID
+    vc_id = cfg.get("voice_channel")
     if vc_id:
-        return bot.get_channel(vc_id)
+        channel = bot.get_channel(vc_id)
+        if channel and getattr(channel, "guild", None) and channel.guild.id == gid:
+            return channel
+        print(f"[WARN] Ignoring configured voice channel {vc_id} for guild {gid}; channel missing or cross-guild.")
+    if VOICE_CHANNEL_ID:
+        channel = bot.get_channel(VOICE_CHANNEL_ID)
+        if channel and getattr(channel, "guild", None) and channel.guild.id == gid:
+            return channel
     return None
 
 
@@ -1574,7 +1582,15 @@ async def tts_worker():
 
             if voice_channel_id:
                 channel = bot.get_channel(voice_channel_id) or await bot.fetch_channel(voice_channel_id)
+                if getattr(channel, "guild", None) and channel.guild.id != guild_id:
+                    print(
+                        f"[WARN] Ignoring cross-guild TTS channel {voice_channel_id} "
+                        f"for guild {guild_id}; falling back to guild voice target."
+                    )
+                    channel = None
             else:
+                channel = None
+            if channel is None:
                 channel = get_donovan_voice_channel(guild)
             if not channel:
                 continue
@@ -1708,17 +1724,9 @@ async def scheduled_roast():
         if today == 0:
             await channel.send(_t(random.choice(_MONDAY_ROASTS_TMPL), gid))
         elif today == 4:
-            await channel.send(_t(random.choice(_FRIDAY_ROASTS_TMPL), gid))
-    # Friday TTS for the original hardcoded channel
-    if today == 4:
-        try:
-            friday_channel = bot.get_channel(1236061974555791492) or await bot.fetch_channel(1236061974555791492)
-            if friday_channel:
-                msg = _t(random.choice(_FRIDAY_ROASTS_TMPL))
-                await friday_channel.send(msg)
-                await tts_queue.put((friday_channel.guild.id, msg, 1236061974555791492))
-        except Exception as e:
-            print(f"[ERROR] Friday TTS channel failed: {e}")
+            msg = _t(random.choice(_FRIDAY_ROASTS_TMPL), gid)
+            await channel.send(msg)
+            await tts_queue.put((channel.guild.id, msg))
 
 
 @tasks.loop(minutes=1)
@@ -3051,8 +3059,10 @@ async def stock_market(ctx):
     eco = load_economy()
     init_market(eco)
     save_economy(eco)
+    gid = ctx.guild.id if ctx.guild else None
+    tgt_ticker = get_guild_target(gid)["ticker"]
 
-    lines = [f"📊 **{TARGET_STOCK_TICKER} STOCK EXCHANGE**\n"]
+    lines = [f"📊 **{tgt_ticker} STOCK EXCHANGE**\n"]
 
     for ticker, info in MARKET_STOCKS.items():
         mdata = eco["market"][ticker]
@@ -3257,13 +3267,19 @@ async def trivia_leaderboard(ctx):
 
 @bot.command(name="shop")
 async def shop(ctx):
+    gid = ctx.guild.id if ctx.guild else None
     rotation, expires = get_shop_rotation()
     now = datetime.datetime.now(datetime.timezone.utc)
     seconds_left = int((expires - now).total_seconds())
     hours_left = seconds_left // 3600
     minutes_left = (seconds_left % 3600) // 60
-    lines = [f"**{SHOP_ITEMS[k]['name']}** (`{k}`) — {SHOP_ITEMS[k]['cost']} coins\n_{SHOP_ITEMS[k]['description']}_"
-             for k in rotation if k in SHOP_ITEMS]
+    lines = []
+    for k in rotation:
+        if k not in SHOP_ITEMS:
+            continue
+        desc_tmpl = _SHOP_ITEMS_TMPL.get(k, {}).get("description", SHOP_ITEMS[k]["description"])
+        desc = _t(desc_tmpl, gid)
+        lines.append(f"**{SHOP_ITEMS[k]['name']}** (`{k}`) — {SHOP_ITEMS[k]['cost']} coins\n_{desc}_")
     await ctx.send(
         f"🛒 **Roast Shop** — Today's Rotation _(refreshes in {hours_left}h {minutes_left}m)_\n\n"
         + "\n\n".join(lines)
@@ -3708,7 +3724,9 @@ async def sell_stock(ctx, ticker: str = None, shares: int = None):
 @bot.command(name="short")
 async def short_stock(ctx, ticker: str = None, shares: int = None):
     if not ticker or not shares or shares <= 0:
-        await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${TARGET_STOCK_TICKER}` is shortable.")
+        gid = ctx.guild.id if ctx.guild else None
+        tgt_ticker = get_guild_target(gid)["ticker"]
+        await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${tgt_ticker}` is shortable.")
         return
     ticker = ticker.upper()
     if ticker not in MARKET_STOCKS:
