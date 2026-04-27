@@ -112,6 +112,27 @@ The bot is now live. @mention it in any channel and it will respond with a roast
 
 ---
 
+## Admin Commands
+
+These commands require the **Administrator** server permission.
+
+| Command | Description |
+|---|---|
+| `!setup` | Register the current channel as the roast/event channel for this server. Run this once per server after inviting the bot. |
+| `!settarget <name> <username> [ticker]` | Set who gets roasted in this server. `name` is the display name, `username` is their Discord username (lowercase, no `#`), and `ticker` is the optional stock symbol (defaults to the first 8 letters of the name). |
+| `!startvote` | Manually open a hate-vote poll in the current channel. |
+| `!tallyvote` | Close and tally the currently running hate vote. |
+| `!resetshop` | Force-reset the shop rotation immediately and pick a new set of items. |
+| `!update` | Pull the latest code from GitHub and restart the bot automatically. |
+
+**Anyone** can run:
+
+| Command | Description |
+|---|---|
+| `!currenttarget` | Show who the bot is currently targeting in this server (name, username, stock ticker). |
+
+---
+
 ## Admin Panel
 
 When the bot starts it also launches a local web dashboard at:
@@ -122,16 +143,18 @@ http://localhost:47832
 
 > If port 47832 is in use the bot will try 47833, 47834 … up to 47841. Check the terminal for the actual port.
 
+Log in with the password set in your `.env` as `ADMIN_PASSWORD`.
+
 ### Pages
 
-| Page | What it shows |
+| Page | What you can do |
 |---|---|
-| `/` | Economy overview — users, coins, shop rotation, stock prices |
-| `/economy` | Full leaderboard with coin balances and portfolio values |
-| `/shop` | Current shop rotation with time until refresh + force-reset button |
-| `/stocks` | All stock prices, short interest, manual price override |
-| `/user/<id>` | Individual user — cash, portfolio, shorts, inventory |
-| `/messages` | Send a message to any channel (optional TTS) |
+| `/` | Overview — per-guild target config, coin leaderboard snapshot, current stock prices, shop rotation |
+| `/economy` | Full leaderboard with cash, portfolio value, and net worth for every user. Adjust any user's coin balance (add / remove / set). |
+| `/shop` | See the current shop rotation and time until it refreshes. Force-reset it instantly. |
+| `/stocks` | Live prices and short interest for all tickers. Manually override any stock price. |
+| `/user/<discord_id>` | Individual user detail — cash, full stock portfolio with P&L, open short positions, and inventory. |
+| `/messages` | Send a message to any channel the bot can see across all servers. Optional TTS playback. |
 
 ---
 
