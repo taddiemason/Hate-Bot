@@ -426,6 +426,30 @@ MARKET_STOCKS = {
     "WENDY":   {"name": "Wendy's Corp",              "base_price": 38.0,  "shares_outstanding": 6000,  "shortable": True, "volatility": 2.8, "mean_reversion": 0.04,  "daily_volume": 1800},
 }
 
+_TARGET_STOCK_DEFAULTS = {
+    "shares_outstanding": 5000,
+    "shortable": True,
+    "volatility": 3.0,
+    "mean_reversion": 0.03,
+    "daily_volume": 1500,
+    "base_price": 50.0,
+}
+
+
+def _get_target_stock_info(eco):
+    """Return {ticker: metadata} for guild target stocks not already in MARKET_STOCKS."""
+    result = {}
+    for tgt in eco.get("guild_targets", {}).values():
+        ticker = (tgt.get("ticker") or "").upper()
+        if not ticker or ticker in MARKET_STOCKS or ticker in result:
+            continue
+        result[ticker] = {
+            "name": f"{tgt['name']} Holdings",
+            **_TARGET_STOCK_DEFAULTS,
+        }
+    return result
+
+
 _ANALYST_QUOTES = [
     "Jim Cramer says **BUY BUY BUY**",
     "WSB calls it a **rug pull** 🚨",
@@ -879,8 +903,9 @@ def update_stocks_on_roast(user_id):
 
 
 def init_market(eco):
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    all_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
     if "market" not in eco:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
         eco["market"] = {
             ticker: {
                 "price": info["base_price"],
@@ -889,11 +914,10 @@ def init_market(eco):
                 "volume_today": 0,
                 "price_history": [info["base_price"]],
             }
-            for ticker, info in MARKET_STOCKS.items()
+            for ticker, info in all_stocks.items()
         }
     else:
-        now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        for ticker, info in MARKET_STOCKS.items():
+        for ticker, info in all_stocks.items():
             if ticker not in eco["market"] or "price" not in eco["market"][ticker]:
                 eco["market"][ticker] = {
                     "price": info["base_price"],
@@ -1756,10 +1780,12 @@ async def scheduled_roast():
     for gid, channel in guild_channels:
         if today == 0:
             await channel.send(_t(random.choice(_MONDAY_ROASTS_TMPL), gid))
+            asyncio.create_task(_apply_roast_stock_impact(gid))
         elif today == 4:
             msg = _t(random.choice(_FRIDAY_ROASTS_TMPL), gid)
             await channel.send(msg)
             await tts_queue.put((channel.guild.id, msg))
+            asyncio.create_task(_apply_roast_stock_impact(gid))
 
 
 @tasks.loop(minutes=1)
@@ -1864,7 +1890,8 @@ async def meme_stock_drift():
     # ── Volume-based price discovery ──────────────────────────────────────────
     now_iso = now.isoformat()
     est_hour = (now.hour - 5) % 24
-    for ticker, info in MARKET_STOCKS.items():
+    all_drift_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
+    for ticker, info in all_drift_stocks.items():
         mdata = eco["market"][ticker]
         price = mdata["price"]
         base = info["base_price"]
@@ -2077,6 +2104,42 @@ async def _start_admin_server():
 
 VOTE_EMOJIS = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣"]
 VOTE_CANDIDATE_LIMIT = 9
+
+
+async def _apply_roast_stock_impact(guild_id):
+    """Drop the roasted guild target's stock and boost every other guild target's stock."""
+    eco = load_economy()
+    init_market(eco)
+
+    roasted_tgt = get_guild_target(guild_id)
+    roasted_ticker = (roasted_tgt.get("ticker") or "").upper()
+    if not roasted_ticker or roasted_ticker not in eco["market"]:
+        return
+
+    drop_pct = random.uniform(-15, -5)
+    boost_pct = random.uniform(1, 5)
+    now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    moves = {}
+
+    old = eco["market"][roasted_ticker]["price"]
+    eco["market"][roasted_ticker]["prev_price"] = old
+    eco["market"][roasted_ticker]["price"] = max(round(old * (1 + drop_pct / 100), 2), 0.01)
+    eco["market"][roasted_ticker]["last_updated"] = now_iso
+    moves[roasted_ticker] = (old, eco["market"][roasted_ticker]["price"], drop_pct, roasted_tgt["name"])
+
+    for tgt in eco.get("guild_targets", {}).values():
+        ticker = (tgt.get("ticker") or "").upper()
+        if not ticker or ticker == roasted_ticker or ticker not in eco["market"]:
+            continue
+        old = eco["market"][ticker]["price"]
+        eco["market"][ticker]["prev_price"] = old
+        eco["market"][ticker]["price"] = max(round(old * (1 + boost_pct / 100), 2), 0.01)
+        eco["market"][ticker]["last_updated"] = now_iso
+        moves[ticker] = (old, eco["market"][ticker]["price"], boost_pct, tgt["name"])
+
+    save_economy(eco)
+
+    # Prices updated silently — players discover the moves via !stockmarket
 
 
 async def _post_hate_vote(channel=None):
@@ -2449,6 +2512,7 @@ async def on_message(message):
                 question = get_question(message)
                 comeback = await argue_with_donovan(question if question else "hey", gid)
                 await message.channel.send(comeback)
+                asyncio.create_task(_apply_roast_stock_impact(gid))
                 return
 
             question = get_question(message)
@@ -2490,6 +2554,7 @@ async def on_message(message):
 
             sent_msg = await message.channel.send(send_text)
             log_roast()
+            asyncio.create_task(_apply_roast_stock_impact(gid))
 
             if tts_enabled or force_tts:
                 await tts_queue.put((message.guild.id, send_text))
