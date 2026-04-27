@@ -1191,13 +1191,15 @@ def set_guild_target(guild_id, name, usernames, ticker=None):
     save_economy(eco)
 
 
-def set_guild_config(guild_id, roast_channel=None, voice_channel=None):
+def set_guild_config(guild_id, roast_channel=None, voice_channel=None, vote_changes_target=None):
     eco = load_economy()
     cfg = eco.setdefault("guild_configs", {}).setdefault(str(guild_id), {})
     if roast_channel is not None:
         cfg["roast_channel"] = roast_channel
     if voice_channel is not None:
         cfg["voice_channel"] = voice_channel
+    if vote_changes_target is not None:
+        cfg["vote_changes_target"] = vote_changes_target
     save_economy(eco)
 
 
@@ -2178,7 +2180,10 @@ async def _tally_hate_vote(guild_id=None):
         g_id = channel.guild.id if channel.guild else None
         old_tgt = get_guild_target(g_id)
         old_name = old_tgt["name"]
-        update_target(winner["name"], [winner["username"]], guild_id=g_id)
+        guild_cfg = get_guild_config(g_id)
+        changes_target = guild_cfg.get("vote_changes_target", True)
+        if changes_target:
+            update_target(winner["name"], [winner["username"]], guild_id=g_id)
 
         board = []
         for c in sorted(candidates, key=lambda c: counts.get(c["emoji"], 0), reverse=True):
@@ -2186,11 +2191,19 @@ async def _tally_hate_vote(guild_id=None):
             bar = "█" * v if v else "░"
             board.append(f"{c['emoji']} **{c['name']}** — {v} vote{'s' if v != 1 else ''}  {bar}")
 
+        if changes_target:
+            outcome = (
+                f"{old_name} gets a temporary reprieve. {winner['name']} — your time starts now."
+            )
+        else:
+            outcome = (
+                f"(Target switching is disabled for this server — **{old_name}** stays in the hot seat.)"
+            )
         await channel.send(
             f"🗳️ **VOTE RESULTS**\n\n"
             + "\n".join(board)
             + f"\n\n👑 **{winner['name']}** wins with **{top_votes} vote{'s' if top_votes != 1 else ''}**.\n"
-            f"{old_name} gets a temporary reprieve. {winner['name']} — your time starts now."
+            + outcome
         )
 
 
@@ -2287,6 +2300,27 @@ async def set_target_cmd(ctx, name: str = None, username: str = None, ticker: st
         f"Name: **{name}** | Username: `{username}` | Ticker: `${final_ticker}`\n"
         f"The hate machine is now aimed at **{name}**."
     )
+
+
+@bot.command(name="togglevoteswitch")
+@commands.has_permissions(administrator=True)
+async def toggle_vote_switch(ctx):
+    """Toggle whether the hate vote winner replaces the target for this server."""
+    if not ctx.guild:
+        await ctx.send("This command must be used in a server.")
+        return
+    cfg = get_guild_config(ctx.guild.id)
+    current = cfg.get("vote_changes_target", True)
+    new_value = not current
+    set_guild_config(ctx.guild.id, vote_changes_target=new_value)
+    if new_value:
+        await ctx.send(
+            "🗳️ **Vote target switching ENABLED** — the winner of each hate vote will become the new roast target."
+        )
+    else:
+        await ctx.send(
+            "🗳️ **Vote target switching DISABLED** — votes will still run and show results, but the current target won't change."
+        )
 
 
 @bot.event
