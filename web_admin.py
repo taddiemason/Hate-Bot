@@ -378,6 +378,13 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         if request.rel_url.query.get("err"):
             msg = f'<div class="msg err">{request.rel_url.query["err"]}</div>'
 
+        # Collect current guild target tickers so we can flag orphaned stocks
+        current_target_tickers = {
+            v.get("ticker", "").upper()
+            for v in eco.get("guild_targets", {}).values()
+            if v.get("ticker")
+        }
+
         rows = ""
         for ticker, info in market_stocks.items():
             mdata = eco.get("market", {}).get(ticker, {})
@@ -390,16 +397,32 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             )
             si_pct = (total_shorted / outstanding * 100) if outstanding else 0
             si_class = "red" if si_pct > 20 else ("yellow" if si_pct > 10 else "green")
+            # Orphaned target stocks (not a current guild target, no base_price defined
+            # in the original spec) get a Force Remove button
+            is_orphan = ticker not in current_target_tickers and not info.get("_builtin", True)
+            remove_btn = ""
+            if is_orphan or ticker in current_target_tickers:
+                pass  # handled in Target Stocks section
+            # Show Force Remove for any stock not currently an active guild target
+            if ticker not in current_target_tickers:
+                remove_btn = (
+                    f'<form method="post" action="/api/removestock" style="display:inline;margin-left:6px">'
+                    f'<input type="hidden" name="ticker" value="{ticker}">'
+                    f'<input type="submit" class="btn danger" value="Remove" '
+                    f'onclick="return confirm(\'Force-remove ${ticker} from the market? Holders will be liquidated at current price.\')">'
+                    f'</form>'
+                )
             rows += f"""<tr>
   <td><b>{ticker}</b></td><td>{info.get('name', ticker)}</td>
   <td>{price:.2f}</td>
   <td class="{si_class}">{si_pct:.1f}%</td>
-  <td>
+  <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
     <form method="post" action="/api/setprice" style="display:flex;gap:6px;align-items:center">
       <input type="hidden" name="ticker" value="{ticker}">
       <input type="number" name="price" value="{price:.2f}" step="0.01" min="0.01" style="width:90px">
       <input type="submit" class="btn secondary" value="Set">
     </form>
+    {remove_btn}
   </td>
 </tr>"""
 
@@ -530,6 +553,35 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
 
         save_eco(eco)
         return aiohttp.web.HTTPFound(f"/stocks?ok={ticker}+marked+for+delisting+%2848hr+grace+period+started%29")
+
+    async def handle_removestock_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        data = await request.post()
+        ticker = data.get("ticker", "").strip().upper()
+        if not ticker:
+            return aiohttp.web.HTTPFound("/stocks?err=Missing+ticker")
+        eco = load_eco()
+        price = eco.get("market", {}).get(ticker, {}).get("price", 0.0)
+        liquidated = 0
+        # Pay out all holders at current price (skip legacy non-user keys)
+        for uid, portfolio in eco.get("stocks", {}).items():
+            if not uid.isdigit() or not isinstance(portfolio, dict):
+                continue
+            shares = portfolio.get(ticker, 0)
+            if shares > 0:
+                payout = round(shares * price, 2)
+                eco.setdefault("balances", {})[uid] = eco["balances"].get(uid, 0) + payout
+                portfolio[ticker] = 0
+                liquidated += 1
+        # Remove from market data and market_stocks in-memory dict
+        eco.get("market", {}).pop(ticker, None)
+        market_stocks.pop(ticker, None)
+        save_eco(eco)
+        msg = f"Removed+{ticker}+from+market"
+        if liquidated:
+            msg += f"+and+liquidated+{liquidated}+holder(s)+at+%24{price:.2f}"
+        return aiohttp.web.HTTPFound(f"/stocks?ok={msg}")
 
     async def handle_setprice_api(request):
         if not _check_auth(request):
@@ -725,6 +777,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_get("/stocks", handle_stocks)
     app.router.add_post("/api/setprice", handle_setprice_api)
     app.router.add_post("/api/deliststock", handle_deliststock_api)
+    app.router.add_post("/api/removestock", handle_removestock_api)
     app.router.add_get("/user/{uid}", handle_user)
     app.router.add_get("/messages", handle_messages)
     app.router.add_post("/api/sendmessage", handle_sendmessage_api)
