@@ -403,12 +403,84 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
   </td>
 </tr>"""
 
+        # ── Target stocks from target_history ──
+        delist_grace = datetime.timedelta(hours=48)
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        target_rows = ""
+        for guild in sorted(bot.guilds, key=lambda g: g.name):
+            gid = str(guild.id)
+            history = eco.get("target_history", {}).get(gid, [])
+            for entry in history:
+                ticker_t = entry.get("ticker", "")
+                name_t = entry.get("name", ticker_t)
+                if not ticker_t:
+                    continue
+                price_t = eco.get("market", {}).get(ticker_t, {}).get("price", 0.0)
+                delisted_at_str = entry.get("delisted_at")
+                if delisted_at_str:
+                    deadline = datetime.datetime.fromisoformat(delisted_at_str) + delist_grace
+                    if deadline <= now_utc:
+                        status_html = '<span class="muted">Delisted</span>'
+                    else:
+                        hrs = round((deadline - now_utc).total_seconds() / 3600, 1)
+                        status_html = f'<span class="yellow">Delisting — {hrs}h left</span>'
+                    action_html = ""
+                else:
+                    status_html = '<span class="green">Active</span>'
+                    action_html = (
+                        f'<form method="post" action="/api/deliststock" style="display:inline">'
+                        f'<input type="hidden" name="guild_id" value="{gid}">'
+                        f'<input type="hidden" name="ticker" value="{html.escape(ticker_t)}">'
+                        f'<input type="submit" class="btn danger" value="Delist" '
+                        f'onclick="return confirm(\'Start 48hr delist countdown for {html.escape(ticker_t)}?\')">'
+                        f'</form>'
+                    )
+                target_rows += (
+                    f"<tr><td><b>{html.escape(ticker_t)}</b></td>"
+                    f"<td>{html.escape(name_t)}</td>"
+                    f"<td>{html.escape(guild.name)}</td>"
+                    f"<td>{price_t:.2f}</td>"
+                    f"<td>{status_html}</td>"
+                    f"<td>{action_html}</td></tr>"
+                )
+
+        target_section = ""
+        if target_rows:
+            target_section = f"""
+<h2>Target Stocks</h2>
+<table>
+  <thead><tr><th>Ticker</th><th>Name</th><th>Server</th><th>Price</th><th>Status</th><th>Action</th></tr></thead>
+  <tbody>{target_rows}</tbody>
+</table>"""
+
         body = f"""{msg}
 <table>
   <thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Short Interest</th><th>Override Price</th></tr></thead>
   <tbody>{rows}</tbody>
-</table>"""
+</table>
+{target_section}"""
         return _page("Stocks", body)
+
+    async def handle_deliststock_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        data = await request.post()
+        guild_id = data.get("guild_id", "").strip()
+        ticker = data.get("ticker", "").strip().upper()
+        if not guild_id or not ticker:
+            return aiohttp.web.HTTPFound("/stocks?err=Missing+parameters")
+        eco = load_eco()
+        history = eco.get("target_history", {}).get(guild_id, [])
+        found = False
+        for entry in history:
+            if entry.get("ticker") == ticker and not entry.get("delisted_at"):
+                entry["delisted_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                found = True
+                break
+        if not found:
+            return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+not+found+or+already+delisting")
+        save_eco(eco)
+        return aiohttp.web.HTTPFound(f"/stocks?ok={ticker}+marked+for+delisting+%2848hr+grace+period+started%29")
 
     async def handle_setprice_api(request):
         if not _check_auth(request):
@@ -603,6 +675,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_post("/api/resetshop", handle_resetshop_api)
     app.router.add_get("/stocks", handle_stocks)
     app.router.add_post("/api/setprice", handle_setprice_api)
+    app.router.add_post("/api/deliststock", handle_deliststock_api)
     app.router.add_get("/user/{uid}", handle_user)
     app.router.add_get("/messages", handle_messages)
     app.router.add_post("/api/sendmessage", handle_sendmessage_api)
