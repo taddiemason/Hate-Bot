@@ -2845,8 +2845,9 @@ async def on_message(message):
 async def daily_checkin(ctx):
     eco = load_economy()
     uid = str(ctx.author.id)
-    today = datetime.date.today().isoformat()
-    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    now_est = datetime.datetime.now(ZoneInfo("America/New_York"))
+    today = now_est.date().isoformat()
+    yesterday = (now_est.date() - datetime.timedelta(days=1)).isoformat()
     data = eco.setdefault("daily_checkins", {}).get(uid, {"last_checkin": None, "streak": 0})
 
     if data["last_checkin"] == today:
