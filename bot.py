@@ -2226,8 +2226,7 @@ async def meme_stock_drift():
             for t, pct in rumor["remaining_impact"].items():
                 if t in eco["market"]:
                     old = eco["market"][t]["price"]
-                    eco["market"][t]["prev_price"] = old
-                    eco["market"][t]["price"] = max(round(old * (1 + pct / 100), 2), 0.01)
+                    _apply_price_event(eco["market"][t], old * (1 + pct / 100))
             new_p = eco["market"][rumor["ticker"]]["price"]
             analyst = random.choice(_ANALYST_QUOTES)
             for _, ch in broadcast_channels:
@@ -2239,8 +2238,7 @@ async def meme_stock_drift():
             for t, pct in rumor["pre_impact"].items():
                 if t in eco["market"]:
                     old = eco["market"][t]["price"]
-                    eco["market"][t]["prev_price"] = old
-                    eco["market"][t]["price"] = max(round(old * (1 - pct / 100), 2), 0.01)
+                    _apply_price_event(eco["market"][t], old * (1 - pct / 100))
             for _, ch in broadcast_channels:
                 await ch.send(
                     f"❌ **DENIED — ${rumor['ticker']}:** *\"{rumor['headline']}\"* was **FAKE NEWS**. "
@@ -2324,8 +2322,7 @@ async def meme_stock_drift():
                 remaining_impact[t] = round(pct * 0.75, 4)
                 if t in eco["market"]:
                     old = eco["market"][t]["price"]
-                    eco["market"][t]["prev_price"] = old
-                    eco["market"][t]["price"] = max(round(old * (1 + pre_impact[t] / 100), 2), 0.01)
+                    _apply_price_event(eco["market"][t], old * (1 + pre_impact[t] / 100))
             eco["pending_rumors"].append({
                 "ticker": ticker,
                 "headline": headline,
@@ -2347,8 +2344,7 @@ async def meme_stock_drift():
             for t, pct in impacts.items():
                 if t in eco["market"]:
                     old = eco["market"][t]["price"]
-                    eco["market"][t]["prev_price"] = old
-                    eco["market"][t]["price"] = max(round(old * (1 + pct / 100), 2), 0.01)
+                    _apply_price_event(eco["market"][t], old * (1 + pct / 100))
             immediate_news.append((ticker, headline, impact_pct, old_price, impacts))
 
     save_economy(eco)
@@ -3586,6 +3582,17 @@ async def lottery(ctx, amount: int = None):
     eco["lottery_pot"] = eco.get("lottery_pot", 0) + cost
     save_economy(eco)
     await ctx.send(f"🎟️ Bought **{tickets} ticket(s)** for **{cost} coins**! Pot is now **{eco['lottery_pot']} coins**. Drawing Sunday at 9 PM EST!")
+
+
+def _apply_price_event(mdata, new_price):
+    """Update market entry for an event-driven price change (news, rumor, roast impact).
+    Keeps ATH/ATL and price_history in sync so !stocktrend reflects spikes immediately."""
+    new_price = max(round(new_price, 2), 0.01)
+    mdata["prev_price"] = mdata.get("price", new_price)
+    mdata["price"] = new_price
+    mdata["all_time_high"] = max(mdata.get("all_time_high", new_price), new_price)
+    mdata["all_time_low"] = min(mdata.get("all_time_low", new_price), new_price)
+    mdata["price_history"] = (mdata.get("price_history", [new_price]) + [new_price])[-48:]
 
 
 def _sparkline(prices):
