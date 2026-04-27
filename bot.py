@@ -2139,24 +2139,7 @@ async def _apply_roast_stock_impact(guild_id):
 
     save_economy(eco)
 
-    roast_old, roast_new, roast_pct, roast_name = moves[roasted_ticker]
-    lines = [
-        f"📉 **ROAST IMPACT — ${roasted_ticker}:** {roast_name} just got roasted. Markets reacting.",
-        f"**${roast_old:.2f} → ${roast_new:.2f}** ({roast_pct:+.1f}%)",
-    ]
-    for ticker, (old_p, new_p, pct, name) in moves.items():
-        if ticker != roasted_ticker:
-            lines.append(
-                f"📈 **${ticker}** ({name}) catches the bounce: "
-                f"**${old_p:.2f} → ${new_p:.2f}** ({pct:+.1f}%)"
-            )
-
-    msg = "\n".join(lines)
-    for _, ch in _get_guild_channels():
-        try:
-            await ch.send(msg)
-        except Exception:
-            pass
+    # Prices updated silently — players discover the moves via !stockmarket
 
 
 async def _post_hate_vote(channel=None):
