@@ -2,7 +2,7 @@
 set -e
 
 echo "Pulling latest..."
-git pull origin claude/fix-sports-trivia-HBbRZ
+git pull origin Main
 
 pkill -f bot.py
 
