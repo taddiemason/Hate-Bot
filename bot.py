@@ -1553,7 +1553,10 @@ def get_donovan_voice_channel(guild):
     gid = guild.id if guild else None
     tgt_usernames = {u.lower() for u in get_guild_target(gid)["usernames"]}
     for member in guild.members:
-        if member.name.lower() in tgt_usernames and member.voice:
+        member_names = {member.name.lower()}
+        if getattr(member, "display_name", None):
+            member_names.add(member.display_name.lower())
+        if member_names & tgt_usernames and member.voice:
             return member.voice.channel
     cfg = get_guild_config(gid)
     vc_id = cfg.get("voice_channel")
@@ -1566,6 +1569,13 @@ def get_donovan_voice_channel(guild):
         channel = bot.get_channel(VOICE_CHANNEL_ID)
         if channel and getattr(channel, "guild", None) and channel.guild.id == gid:
             return channel
+    # Last-resort fallback: any active voice channel in this guild.
+    active_channels = [
+        vc for vc in guild.voice_channels
+        if any(not m.bot for m in getattr(vc, "members", []))
+    ]
+    if active_channels:
+        return sorted(active_channels, key=lambda c: len(c.members), reverse=True)[0]
     return None
 
 
