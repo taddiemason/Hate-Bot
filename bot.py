@@ -2044,7 +2044,7 @@ async def meme_stock_drift():
         total_pct  = max(-15.0, min(15.0, volume_pct + noise_pct))
 
         new_price = max(round(price * (1 + total_pct / 100), 2), 0.01)
-        mdata["price_history"]  = (history + [new_price])[-3:]
+        mdata["price_history"]  = (history + [new_price])[-48:]
         mdata["prev_price"]     = price
         mdata["price"]          = new_price
         mdata["last_updated"]   = now_iso
@@ -3334,6 +3334,113 @@ async def lottery(ctx, amount: int = None):
     await ctx.send(f"🎟️ Bought **{tickets} ticket(s)** for **{cost} coins**! Pot is now **{eco['lottery_pot']} coins**. Drawing Sunday at 9 PM EST!")
 
 
+def _sparkline(prices):
+    """Convert a list of prices into an 8-level unicode sparkline string."""
+    if len(prices) < 2:
+        return "—"
+    lo, hi = min(prices), max(prices)
+    blocks = "▁▂▃▄▅▆▇█"
+    if hi == lo:
+        return blocks[3] * len(prices)
+    return "".join(blocks[round((p - lo) / (hi - lo) * 7)] for p in prices)
+
+
+@bot.command(name="stocktrend")
+async def stock_trend(ctx, ticker: str = None):
+    """Show sparkline chart and trend indicators for a stock. Usage: !stocktrend <TICKER>"""
+    eco = load_economy()
+    init_market(eco)
+    gid = ctx.guild.id if ctx.guild else None
+
+    all_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
+
+    if not ticker:
+        await ctx.send("Usage: `!stocktrend <TICKER>` — e.g. `!stocktrend DONOVAN`")
+        return
+
+    ticker = ticker.upper()
+    if ticker not in eco["market"]:
+        await ctx.send(f"Unknown ticker **${ticker}**. Check `!stockmarket` for valid tickers.")
+        return
+
+    mdata = eco["market"][ticker]
+    info = all_stocks.get(ticker, _TARGET_STOCK_DEFAULTS)
+    history = mdata.get("price_history", [mdata["price"]])
+    current = mdata["price"]
+    base = info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"])
+
+    # Sparkline (last 24 ticks = 4 hours, trimmed to fit Discord)
+    spark_prices = history[-24:]
+    spark = _sparkline(spark_prices)
+
+    # Multi-window % changes
+    def pct_change(window):
+        if len(history) < window + 1:
+            return None
+        old = history[-(window + 1)]
+        return round((current - old) / old * 100, 2) if old else None
+
+    c30m  = pct_change(3)    # 30 min  (3 ticks)
+    c2h   = pct_change(12)   # 2 hours (12 ticks)
+    c8h   = pct_change(48)   # 8 hours (48 ticks)
+
+    def fmt_pct(val):
+        if val is None:
+            return "n/a"
+        arrow = "📈" if val > 0 else ("📉" if val < 0 else "➡️")
+        return f"{arrow} {val:+.2f}%"
+
+    # Momentum: fraction of recent ticks that were up-moves
+    diffs = [history[i] - history[i - 1] for i in range(1, len(history))]
+    recent_diffs = diffs[-12:] if len(diffs) >= 12 else diffs
+    if recent_diffs:
+        up_frac = sum(1 for d in recent_diffs if d > 0) / len(recent_diffs)
+        if up_frac >= 0.65:
+            momentum = "🟢 Bullish"
+        elif up_frac <= 0.35:
+            momentum = "🔴 Bearish"
+        else:
+            momentum = "🟡 Neutral"
+    else:
+        momentum = "🟡 Neutral"
+
+    # High / low over available history
+    hi = max(history)
+    lo = min(history)
+
+    # Distance from base price
+    from_base = round((current - base) / base * 100, 1)
+    base_str = f"{from_base:+.1f}% from base (${base:.2f})"
+
+    # Short interest
+    shorted = sum(
+        pos[ticker]["shares"]
+        for pos in eco.get("short_positions", {}).values()
+        if ticker in pos
+    )
+    outstanding = info.get("shares_outstanding", _TARGET_STOCK_DEFAULTS["shares_outstanding"])
+    si_pct = round(shorted / outstanding * 100, 1) if outstanding else 0
+    si_str = f"  🔥 Short Interest: {si_pct}%" if si_pct > 0 else ""
+
+    ticks_shown = len(spark_prices)
+    lines = [
+        f"📈 **${ticker} Trend** — ${current:.2f}  |  {base_str}",
+        f"```{spark}```",
+        f"*last {ticks_shown} ticks (~{ticks_shown * 10} min)*",
+        f"",
+        f"**Performance**",
+        f"  30 min:  {fmt_pct(c30m)}",
+        f"  2 hr:    {fmt_pct(c2h)}",
+        f"  8 hr:    {fmt_pct(c8h)}",
+        f"",
+        f"**Range (all history)**",
+        f"  High: ${hi:.2f}   Low: ${lo:.2f}",
+        f"",
+        f"**Momentum:** {momentum}{si_str}",
+    ]
+    await ctx.send("\n".join(lines))
+
+
 @bot.command(name="stockmarket")
 async def stock_market(ctx):
     eco = load_economy()
@@ -3344,22 +3451,34 @@ async def stock_market(ctx):
 
     lines = [f"📊 **{tgt_ticker} STOCK EXCHANGE**\n"]
 
-    for ticker, info in MARKET_STOCKS.items():
+    target_stocks = _get_target_stock_info(eco)
+    all_display_stocks = {**MARKET_STOCKS, **target_stocks}
+
+    for ticker, info in all_display_stocks.items():
+        if ticker not in eco["market"]:
+            continue
         mdata = eco["market"][ticker]
         price = mdata["price"]
-        prev = mdata.get("prev_price", info["base_price"])
+        prev = mdata.get("prev_price", info.get("base_price", price))
         change = round(price - prev, 2)
         pct = round((change / prev * 100) if prev else 0, 1)
         trend = "📉" if change < 0 else "📈"
         vol = mdata.get("volume_today", 0)
+        history = mdata.get("price_history", [price])
+        spark = _sparkline(history[-12:])  # last 2 hours inline
         shorted = sum(
             pos[ticker]["shares"]
             for pos in eco.get("short_positions", {}).values()
             if ticker in pos
         )
-        si_pct = round(shorted / info["shares_outstanding"] * 100, 1)
+        outstanding = info.get("shares_outstanding", _TARGET_STOCK_DEFAULTS["shares_outstanding"])
+        si_pct = round(shorted / outstanding * 100, 1) if outstanding else 0
         si_str = f"  🔥 SI: {si_pct}%" if si_pct > 0 else ""
-        lines.append(f"**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%)  Vol: {vol}{si_str}")
+        label = "🎯 " if ticker in target_stocks else ""
+        lines.append(
+            f"{label}**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%)  "
+            f"`{spark}`  Vol: {vol}{si_str}"
+        )
 
     # Top portfolio holders
     all_uids = set(eco.get("portfolios", {}).keys()) | set(eco.get("short_positions", {}).keys())
@@ -3372,7 +3491,7 @@ async def stock_market(ctx):
             val = get_portfolio_value(eco, uid)
             lines.append(f"  **{name}** — {val:.0f} coins")
 
-    lines.append("\n`!buystock` `!sellstock` `!short` `!cover` `!limitorder` `!portfolio` `!orders`")
+    lines.append("\n`!buystock` `!sellstock` `!short` `!cover` `!limitorder` `!portfolio` `!orders` `!stocktrend <TICKER>`")
     await ctx.send("\n".join(lines))
 
 
