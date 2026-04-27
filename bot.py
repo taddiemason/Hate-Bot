@@ -3135,8 +3135,20 @@ async def daily_checkin(ctx):
 
 
 @bot.command(name="flip")
-async def coinflip(ctx, amount: int = None, side: str = None):
-    if not amount or not side or side.lower() not in ("heads", "tails"):
+async def coinflip(ctx, arg1: str = None, arg2: str = None):
+    # Accept either order: !flip 500 heads  OR  !flip heads 500
+    amount, side = None, None
+    for arg in (arg1, arg2):
+        if arg is None:
+            continue
+        if arg.lower() in ("heads", "tails"):
+            side = arg.lower()
+        else:
+            try:
+                amount = int(arg)
+            except ValueError:
+                pass
+    if not amount or not side:
         await ctx.send("Usage: `!flip <amount> heads` or `!flip <amount> tails`")
         return
     if amount <= 0:
@@ -3147,7 +3159,7 @@ async def coinflip(ctx, amount: int = None, side: str = None):
         await ctx.send(f"Not enough coins. You have **{bal}**.")
         return
     result = random.choice(["heads", "tails"])
-    if result == side.lower():
+    if result == side:
         add_coins(ctx.author.id, amount * 2)
         await ctx.send(f"🪙 **{result.upper()}!** You won **{amount} coins!**")
     else:
