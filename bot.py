@@ -3625,20 +3625,25 @@ async def stock_market(ctx):
         si_pct = round(shorted / outstanding * 100, 1) if outstanding else 0
         si_str = f"  🔥 SI: {si_pct}%" if si_pct > 0 else ""
 
+        # 2-hour % change (12 ticks back)
+        if len(history) >= 13:
+            old_2h = history[-13]
+            pct_2h = round((price - old_2h) / old_2h * 100, 1) if old_2h else None
+        else:
+            pct_2h = None
+        pct_2h_str = f"  2hr: {pct_2h:+.1f}%" if pct_2h is not None else ""
+
         if ticker in delisted:
             hrs_left = max(0, round((delisted[ticker] - now_dt).total_seconds() / 3600, 1))
-            label = f"🪦 "
+            label = "🪦 "
             delist_str = f"  *(delisted — {hrs_left}h to sell)*"
-        elif ticker in target_stocks and ticker not in delisted:
-            label = "🎯 "
-            delist_str = ""
         else:
             label = ""
             delist_str = ""
 
         lines.append(
-            f"{label}**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%)  "
-            f"`{spark}`  Vol: {vol}{si_str}{delist_str}"
+            f"{label}**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%){pct_2h_str}  "
+            f"Vol: {vol}{si_str}{delist_str}"
         )
 
     # Top portfolio holders
