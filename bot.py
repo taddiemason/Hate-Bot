@@ -1039,6 +1039,11 @@ def init_market(eco):
                 eco["market"][ticker].setdefault("dynamic_base", info["base_price"])
                 eco["market"][ticker].setdefault("all_time_high", eco["market"][ticker].get("price", info["base_price"]))
                 eco["market"][ticker].setdefault("all_time_low",  eco["market"][ticker].get("price", info["base_price"]))
+                # Reconcile ATH/ATL with full price_history in case history predates ATH tracking
+                ph = eco["market"][ticker].get("price_history", [])
+                if ph:
+                    eco["market"][ticker]["all_time_high"] = max(eco["market"][ticker]["all_time_high"], max(ph))
+                    eco["market"][ticker]["all_time_low"]  = min(eco["market"][ticker]["all_time_low"],  min(ph))
     eco.setdefault("portfolios", {})
     eco.setdefault("short_positions", {})
     eco.setdefault("limit_orders", [])
