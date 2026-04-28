@@ -2271,11 +2271,6 @@ async def meme_stock_drift():
                 )
     eco["pending_rumors"] = still_pending
 
-    # ── Market sentiment: slow random walk, mean-reverts to 0 ─────────────────
-    sentiment = mstate.get("sentiment", 0.0)
-    sentiment = max(-1.0, min(1.0, sentiment * 0.92 + random.gauss(0, 0.1)))
-    mstate["sentiment"] = round(sentiment, 4)
-
     # ── Daily volume reset ────────────────────────────────────────────────────
     today = now.strftime("%Y-%m-%d")
     if mstate.get("volume_date") != today:
@@ -2283,9 +2278,16 @@ async def meme_stock_drift():
             eco["market"][ticker]["volume_today"] = 0
         mstate["volume_date"] = today
 
+    now_est = datetime.datetime.now(ZoneInfo("America/New_York"))
+
+    # ── Market sentiment: slow random walk, mean-reverts to 0 (9am–midnight EST)
+    sentiment = mstate.get("sentiment", 0.0)
+    if now_est.hour >= 9:
+        sentiment = max(-1.0, min(1.0, sentiment * 0.92 + random.gauss(0, 0.1)))
+        mstate["sentiment"] = round(sentiment, 4)
+
     # ── Volume-based price discovery ──────────────────────────────────────────
     now_iso = now.isoformat()
-    est_hour = (now.hour - 5) % 24
     all_drift_stocks = {**MARKET_STOCKS, **_get_target_stock_info(eco)}
     for ticker, info in all_drift_stocks.items():
         mdata = eco["market"][ticker]
@@ -2295,7 +2297,7 @@ async def meme_stock_drift():
         daily_vol = info["daily_volume"]
 
         # TBELL 4th meal hours: triple volume and volatility 10pm–4am EST
-        tick_multiplier = 3.0 if ticker == "TBELL" and (est_hour >= 22 or est_hour < 4) else 1.0
+        tick_multiplier = 3.0 if ticker == "TBELL" and (now_est.hour >= 22 or now_est.hour < 4) else 1.0
 
         # Simulated tick volume — slice of daily volume with noise
         tick_vol = max(10, round(daily_vol / 144 * random.uniform(0.5, 2.0) * tick_multiplier))
@@ -2324,9 +2326,9 @@ async def meme_stock_drift():
         mdata["all_time_high"]  = max(mdata.get("all_time_high", new_price), new_price)
         mdata["all_time_low"]   = min(mdata.get("all_time_low",  new_price), new_price)
 
-    # ── News events ───────────────────────────────────────────────────────────
+    # ── News events (9am–midnight EST only) ──────────────────────────────────
     immediate_news = []
-    for ticker in MARKET_STOCKS:
+    for ticker in (MARKET_STOCKS if now_est.hour >= 9 else []):
         if random.random() > 0.015:
             continue
         event = random.choice(_STOCK_NEWS[ticker])
