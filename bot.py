@@ -2161,9 +2161,6 @@ async def scheduled_roast():
 
 @tasks.loop(minutes=1)
 async def limit_order_checker():
-    now_est = datetime.datetime.now(ZoneInfo("America/New_York"))
-    if now_est.hour < 9:
-        return
     eco = load_economy()
     init_market(eco)
     orders = list(eco.get("limit_orders", []))
@@ -2401,9 +2398,6 @@ async def meme_stock_drift():
 
 @tasks.loop(minutes=5)
 async def derivatives_settlement():
-    now_est = datetime.datetime.now(ZoneInfo("America/New_York"))
-    if now_est.hour < 9:
-        return
     eco = load_economy()
     init_market(eco)
     init_derivatives(eco)
@@ -2416,9 +2410,6 @@ async def derivatives_settlement():
 
 @tasks.loop(minutes=5)
 async def margin_call_checker():
-    now_est = datetime.datetime.now(ZoneInfo("America/New_York"))
-    if now_est.hour < 9:
-        return
     eco = load_economy()
     init_market(eco)
     gc = _get_guild_channels()
