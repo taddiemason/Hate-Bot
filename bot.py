@@ -2318,7 +2318,7 @@ async def meme_stock_drift():
         total_pct  = max(-15.0, min(15.0, volume_pct + noise_pct))
 
         new_price = max(round(price * (1 + total_pct / 100), 2), 0.01)
-        mdata["price_history"]  = (history + [new_price])[-48:]
+        mdata["price_history"]  = (history + [new_price])[-49:]
         mdata["prev_price"]     = price
         mdata["price"]          = new_price
         mdata["last_updated"]   = now_iso
@@ -3630,7 +3630,7 @@ def _apply_price_event(mdata, new_price):
     mdata["price"] = new_price
     mdata["all_time_high"] = max(mdata.get("all_time_high", new_price), new_price)
     mdata["all_time_low"] = min(mdata.get("all_time_low", new_price), new_price)
-    mdata["price_history"] = (mdata.get("price_history", [new_price]) + [new_price])[-48:]
+    mdata["price_history"] = (mdata.get("price_history", [new_price]) + [new_price])[-49:]
 
 
 def _sparkline(prices):
@@ -3669,8 +3669,8 @@ async def stock_trend(ctx, ticker: str = None):
     base = mdata.get("dynamic_base", info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"]))
     static_base = info.get("base_price", _TARGET_STOCK_DEFAULTS["base_price"])
 
-    # Sparkline (last 24 ticks = 4 hours, trimmed to fit Discord)
-    spark_prices = history[-24:]
+    # Sparkline: show full available history (up to 48 ticks = 8 hours)
+    spark_prices = history[-48:]
     spark = _sparkline(spark_prices)
 
     # Multi-window % changes
