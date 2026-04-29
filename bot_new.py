@@ -1,0 +1,85 @@
+import os
+import asyncio
+import aiohttp.web
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from database import init_db
+import discord
+from discord.ext import commands
+from web_admin import create_web_app, log_event
+import shared
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.members = True
+intents.presences = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
+shared.set_bot(bot)
+
+_admin_server_started = False
+
+
+async def _start_admin_server():
+    global _admin_server_started
+    app = create_web_app(
+        shared.load_economy, shared.save_economy, shared.get_shop_rotation,
+        shared.SHOP_ITEMS, shared.MARKET_STOCKS, bot, shared.tts_queue,
+    )
+    runner = aiohttp.web.AppRunner(app)
+    await runner.setup()
+    for port in range(47832, 47842):
+        try:
+            site = aiohttp.web.TCPSite(runner, "0.0.0.0", port)
+            await site.start()
+            _admin_server_started = True
+            print(f"Admin dashboard running at http://0.0.0.0:{port}")
+            return
+        except OSError:
+            continue
+    print("Admin dashboard failed to start: no available port in range 47832-47841")
+
+
+@bot.event
+async def on_ready():
+    global _admin_server_started
+    init_db()
+    shared.set_bot(bot)
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    log_event("INFO", f"Bot online: {bot.user} (ID: {bot.user.id}) — {len(bot.guilds)} guild(s)")
+
+    eco = shared.load_economy()
+    saved = eco.get("active_target")
+    if saved:
+        shared.update_target(saved["name"], saved.get("usernames", []), saved.get("ticker"), save=False)
+        log_event("INFO", f"Target restored: {shared.TARGET_NAME} / {shared.TARGET_USERNAMES} / ${shared.TARGET_STOCK_TICKER}")
+
+    for ext in ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.admin"):
+        if ext not in bot.extensions:
+            await bot.load_extension(ext)
+
+    asyncio.ensure_future(shared.tts_worker())
+    if not _admin_server_started:
+        asyncio.ensure_future(_start_admin_server())
+
+
+@bot.event
+async def on_disconnect():
+    print("[DEBUG] Bot disconnected from Discord")
+    log_event("WARN", "Bot disconnected from Discord")
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    print(f"[ERROR] Command '{ctx.command}' raised: {error}")
+    import traceback
+    traceback.print_exception(type(error), error, error.__traceback__)
+    log_event("ERROR", f"Command '{ctx.command}' in #{getattr(ctx.channel, 'name', '?')} raised: {error}")
+    await ctx.send(f"❌ Command error: `{error}`")
+
+
+bot.run(os.getenv("DISCORD_TOKEN"))
