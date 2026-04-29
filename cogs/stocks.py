@@ -8,6 +8,7 @@ import shared
 from shared import (
     load_economy, save_economy, get_guild_target, _t,
     _sparkline, _market_sentiment, _get_target_stock_info, _get_delisted_stocks,
+    init_market,
 )
 
 class StocksCog(commands.Cog):
