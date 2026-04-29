@@ -414,14 +414,14 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             )
             si_pct = (total_shorted / outstanding * 100) if outstanding else 0
             si_class = "red" if si_pct > 20 else ("yellow" if si_pct > 10 else "green")
-            # Orphaned target stocks (not a current guild target, no base_price defined
-            # in the original spec) get a Force Remove button
-            is_orphan = ticker not in current_target_tickers and not info.get("_builtin", True)
+            # Target tickers are shown in the Target Stocks section below
+            if ticker in current_target_tickers:
+                continue
+
             remove_btn = ""
-            if is_orphan or ticker in current_target_tickers:
-                pass  # handled in Target Stocks section
-            # Show Force Remove for any stock not currently an active guild target
-            if ticker not in current_target_tickers:
+            # Show Force Remove for orphaned stocks (no base_price in original spec)
+            is_orphan = not info.get("_builtin", True)
+            if is_orphan:
                 remove_btn = (
                     f'<form method="post" action="/api/removestock" style="display:inline;margin-left:6px">'
                     f'<input type="hidden" name="ticker" value="{ticker}">'
