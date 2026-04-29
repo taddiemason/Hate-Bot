@@ -9,6 +9,8 @@ from shared import (
     load_economy, save_economy, get_guild_target, _t,
     _sparkline, _market_sentiment, _get_target_stock_info, _get_delisted_stocks,
     init_market, get_portfolio_value, init_derivatives, _get_random_member_name,
+    execute_market_buy, execute_market_sell, execute_open_short, execute_close_short,
+    calc_option_premium,
 )
 
 class StocksCog(commands.Cog):
