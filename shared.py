@@ -100,6 +100,45 @@ SLOT_SYMBOLS = ["🍋", "🍒", "🍇", "💎", "🎰", "7️⃣"]
 SLOT_PAYOUTS = {("7️⃣", "7️⃣", "7️⃣"): 50, ("💎", "💎", "💎"): 25, ("🎰", "🎰", "🎰"): 15}
 CARD_SUITS = ["♠", "♥", "♦", "♣"]
 CARD_RANKS = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"]
+
+def new_deck():
+    deck = [(r, s) for s in CARD_SUITS for r in CARD_RANKS]
+    random.shuffle(deck)
+    return deck
+
+
+def card_str(card):
+    return f"{card[0]}{card[1]}"
+
+
+def hand_str(hand, hide_second=False):
+    if hide_second:
+        return f"{card_str(hand[0])} 🂠"
+    return " ".join(card_str(c) for c in hand)
+
+
+def hand_value(hand):
+    value = 0
+    aces = 0
+    for rank, _ in hand:
+        if rank in ("J", "Q", "K"):
+            value += 10
+        elif rank == "A":
+            aces += 1
+            value += 11
+        else:
+            value += int(rank)
+    while value > 21 and aces:
+        value -= 10
+        aces -= 1
+    return value
+
+
+def is_blackjack(hand):
+    return len(hand) == 2 and hand_value(hand) == 21
+
+
+
 SERVER_ROAST_MILESTONES = {100: 50, 250: 75, 500: 100, 1000: 200, 2500: 300, 5000: 500}
 DONOVAN_STOCK_BASE = 100.0
 USER_STOCK_BASE = 10.0
@@ -1941,3 +1980,26 @@ SPORTS_TRIVIA_FALLBACKS = [
     ("Which country won the most gold medals at the 2020 Tokyo Olympics?", "USA"),
     ("What year did the US Women's Soccer team win their first Olympic gold medal?", "1996"),
 ]
+
+def _apply_price_event(mdata, new_price):
+    """Update market entry for an event-driven price change (news, rumor, roast impact).
+    Keeps ATH/ATL and price_history in sync so !stocktrend reflects spikes immediately."""
+    new_price = max(round(new_price, 2), 0.01)
+    mdata["prev_price"] = mdata.get("price", new_price)
+    mdata["price"] = new_price
+    mdata["all_time_high"] = max(mdata.get("all_time_high", new_price), new_price)
+    mdata["all_time_low"] = min(mdata.get("all_time_low", new_price), new_price)
+    mdata["price_history"] = (mdata.get("price_history", [new_price]) + [new_price])[-49:]
+
+
+def _sparkline(prices):
+    """Convert a list of prices into an 8-level unicode sparkline string."""
+    if len(prices) < 2:
+        return "—"
+    lo, hi = min(prices), max(prices)
+    blocks = "▁▂▃▄▅▆▇█"
+    if hi == lo:
+        return blocks[3] * len(prices)
+    return "".join(blocks[round((p - lo) / (hi - lo) * 7)] for p in prices)
+
+
