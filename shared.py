@@ -1831,6 +1831,7 @@ def _get_delisted_stocks(eco):
     return result
 
 
+def _fix_news_item(item):
     fixed = {"headline": _t(item["headline"]), "impact": item["impact"]}
     if "linked" in item:
         fixed["linked"] = [
