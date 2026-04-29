@@ -424,8 +424,6 @@ class RoastCog(commands.Cog):
                 log_event("ERROR", f"on_message crashed in #{getattr(message.channel, 'name', '?')}: {e}")
                 await message.channel.send(shared._t(random.choice(shared._GENERAL_ROASTS_TMPL), gid))
 
-        await self.bot.process_commands(message)
-
 
 
 
