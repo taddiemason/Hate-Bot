@@ -21,7 +21,7 @@ class RoastCog(commands.Cog):
         self.weekly_recap.cancel()
 
     @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def scheduled_roast():
+    async def scheduled_roast(self):
         today = datetime.datetime.now(datetime.timezone.utc).weekday()
         guild_channels = shared._get_guild_channels()
         for gid, channel in guild_channels:
@@ -37,7 +37,7 @@ class RoastCog(commands.Cog):
 
 
     @tasks.loop(time=datetime.time(hour=21, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def weekly_recap():
+    async def weekly_recap(self):
         today = datetime.datetime.now(datetime.timezone.utc).weekday()
         if today != 6:  # Sunday only
             return

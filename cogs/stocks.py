@@ -31,7 +31,7 @@ class StocksCog(commands.Cog):
         self.margin_call_checker.cancel()
 
     @tasks.loop(time=datetime.time(hour=18, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def dividend_payout():
+    async def dividend_payout(self):
         """Every Sunday at 6 PM ET: pay dividends to holders of dividend-bearing stocks."""
         if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 6:
             return
@@ -80,7 +80,7 @@ class StocksCog(commands.Cog):
 
 
     @tasks.loop(time=datetime.time(hour=19, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def earnings_report():
+    async def earnings_report(self):
         """Every Sunday at 7 PM ET: shift each stock's dynamic base toward its weekly average."""
         if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 6:
             return
@@ -135,7 +135,7 @@ class StocksCog(commands.Cog):
 
 
     @tasks.loop(minutes=1)
-    async def limit_order_checker():
+    async def limit_order_checker(self):
         eco = load_economy()
         shared.init_market(eco)
         orders = list(eco.get("limit_orders", []))
@@ -182,7 +182,7 @@ class StocksCog(commands.Cog):
 
 
     @tasks.loop(minutes=10)
-    async def meme_stock_drift():
+    async def meme_stock_drift(self):
         eco = load_economy()
         shared.init_market(eco)
         now = datetime.datetime.now(datetime.timezone.utc)
@@ -371,7 +371,7 @@ class StocksCog(commands.Cog):
 
 
     @tasks.loop(minutes=5)
-    async def derivatives_settlement():
+    async def derivatives_settlement(self):
         eco = load_economy()
         shared.init_market(eco)
         shared.init_derivatives(eco)
@@ -384,7 +384,7 @@ class StocksCog(commands.Cog):
 
 
     @tasks.loop(minutes=5)
-    async def margin_call_checker():
+    async def margin_call_checker(self):
         eco = load_economy()
         shared.init_market(eco)
         gc = shared._get_guild_channels()

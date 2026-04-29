@@ -25,7 +25,7 @@ class AdminCog(commands.Cog):
         self.weekly_vote_end.cancel()
 
     @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def weekly_vote_start():
+    async def weekly_vote_start(self):
         """Open the vote every Monday at 9 AM ET."""
         if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 0:
             return
@@ -34,7 +34,7 @@ class AdminCog(commands.Cog):
 
 
     @tasks.loop(time=datetime.time(hour=20, minute=0, tzinfo=ZoneInfo("America/New_York")))
-    async def weekly_vote_end():
+    async def weekly_vote_end(self):
         """Close the vote every Sunday at 8 PM ET (one hour before weekly recap)."""
         if datetime.datetime.now(ZoneInfo("America/New_York")).weekday() != 6:
             return
