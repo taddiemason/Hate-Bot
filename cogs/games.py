@@ -11,6 +11,7 @@ from shared import (
     _t, new_deck, card_str, hand_str, hand_value, is_blackjack,
     generate_trivia_question, generate_sports_question, judge_trivia_answer,
     judge_sports_answer, _trivia_quick_match, ask_openai,
+    trivia_recent, trivia_recent_answers, trivia_recent_cats,
 )
 
 class GamesCog(commands.Cog):
@@ -446,13 +447,13 @@ class GamesCog(commands.Cog):
             await ctx.send(f"You're not allowed to play this game {tn}. You might recognise yourself.")
             return
 
-        if guess_game_active:
+        if shared.guess_game_active:
             await ctx.send("A game is already running. One humiliation at a time.")
             return
 
-        guess_game_active = True
+        shared.guess_game_active = True
         scores = {}
-        quotes_pool = [{"text": _t(q["text"], gid), "is_donovan": q["is_donovan"]} for q in _shared.QUOTES_TMPL]
+        quotes_pool = [{"text": _t(q["text"], gid), "is_donovan": q["is_donovan"]} for q in shared._QUOTES_TMPL]
         pool = random.sample(quotes_pool, min(3, len(quotes_pool)))
 
         try:
@@ -510,7 +511,7 @@ class GamesCog(commands.Cog):
             print(f"[ERROR] Guess game failed: {e}")
             await ctx.send(f"The game crashed. Blame {tn}.")
         finally:
-            guess_game_active = False
+            shared.guess_game_active = False
 
 
 

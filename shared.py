@@ -582,6 +582,19 @@ GENERAL_ROASTS = [
 ]
 
 
+# ── Raw template snapshots (re-applied when update_target() swaps the target) ─
+_SHOP_ITEMS_TMPL        = {k: {**v} for k, v in SHOP_ITEMS.items()}
+_SENTENCES_TMPL         = list(SENTENCES)
+_MONDAY_ROASTS_TMPL     = list(MONDAY_ROASTS)
+_FRIDAY_ROASTS_TMPL     = list(FRIDAY_ROASTS)
+_RUST_ROASTS_TMPL       = list(RUST_ROASTS)
+_WOW_ROASTS_TMPL        = list(WOW_ROASTS)
+_ROASTS_DIRECT_TMPL     = list(DONOVAN_ROASTS_DIRECT)
+_GENERAL_ROASTS_TMPL    = list(GENERAL_ROASTS)
+_TRIVIA_TMPL            = [dict(q) for q in TRIVIA_QUESTIONS]
+_QUOTES_TMPL            = [dict(q) for q in QUOTES]
+_STOCK_NEWS_TARGET_TMPL = [dict(item) for item in _STOCK_NEWS.get("DONOVAN", [])]
+
 SYSTEM_PROMPT = _t(_SYSTEM_PROMPT_TMPL)
 DONOVAN_ARGUE_PROMPT = _t(_ARGUE_PROMPT_TMPL)
 
