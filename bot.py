@@ -1,5 +1,4 @@
 import os
-import json
 import math
 import random
 import asyncio
@@ -11,8 +10,10 @@ from discord.ext import commands, tasks
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from gtts import gTTS
+from database import init_db, load_economy, save_economy, load_count, save_count, log_roast, get_weekly_recap
 
 load_dotenv()
+init_db()
 
 TARGET_NAME = os.getenv("TARGET_NAME", "Donovan")
 TARGET_USERNAMES = {u.strip().lower() for u in os.getenv("TARGET_USERNAMES", "itsrebrand,streamerweiner").split(",") if u.strip()}
@@ -43,9 +44,6 @@ groq_client = AsyncOpenAI(
     base_url="https://api.groq.com/openai/v1",
 )
 
-COUNTER_FILE = "roast_count.json"
-ROAST_LOG_FILE = "roast_log.json"
-ECONOMY_FILE = "economy.json"
 MILESTONES = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 DONOVAN_USERNAMES = TARGET_USERNAMES
 ROAST_CHANNEL_ID = int(os.getenv("ROAST_CHANNEL_ID", 0))
@@ -450,34 +448,6 @@ def hand_value(hand):
 def is_blackjack(hand):
     return len(hand) == 2 and hand_value(hand) == 21
 
-
-def log_roast():
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    if os.path.exists(ROAST_LOG_FILE):
-        with open(ROAST_LOG_FILE, "r") as f:
-            log = json.load(f)
-    else:
-        log = []
-    log.append(now)
-    with open(ROAST_LOG_FILE, "w") as f:
-        json.dump(log, f)
-
-
-def get_weekly_recap():
-    if not os.path.exists(ROAST_LOG_FILE):
-        return None, []
-    with open(ROAST_LOG_FILE, "r") as f:
-        log = json.load(f)
-    with open(ROAST_LOG_FILE, "w") as f:
-        json.dump([], f)
-    return len(log), log
-
-
-def load_count():
-    if os.path.exists(COUNTER_FILE):
-        with open(COUNTER_FILE, "r") as f:
-            return json.load(f).get("count", 0)
-    return 0
 
 
 DONOVAN_STOCK_BASE = 100.0
@@ -1229,21 +1199,6 @@ async def expire_options(eco, channel):
         eco["options"][uid] = remaining
 
 
-def save_count(count):
-    with open(COUNTER_FILE, "w") as f:
-        json.dump({"count": count}, f)
-
-
-def load_economy():
-    if os.path.exists(ECONOMY_FILE):
-        with open(ECONOMY_FILE, "r") as f:
-            return json.load(f)
-    return {"balances": {}, "bounties": [], "insurance_expires": None,
-            "pending_upgrades": {}, "inventory": {}, "market_listings": [],
-            "slow_clap_pending": 0,
-            "next_bounty_id": 1, "next_listing_id": 1,
-            "shop_rotation": None, "shop_rotation_expires": None}
-
 
 def get_shop_rotation():
     eco = load_economy()
@@ -1267,11 +1222,6 @@ def get_shop_rotation():
         save_economy(eco)
         return rotation, datetime.datetime.fromisoformat(next_expires)
     return eco["shop_rotation"], expires
-
-
-def save_economy(data):
-    with open(ECONOMY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
 
 
 def add_coins(user_id, amount):
@@ -2783,6 +2733,7 @@ async def toggle_vote_switch(ctx):
 @bot.event
 async def on_ready():
     global _admin_server_started
+    init_db()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
     # Restore persisted target (set by a previous vote or manual update)
