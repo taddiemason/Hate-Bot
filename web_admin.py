@@ -3,10 +3,24 @@ import secrets
 import datetime
 import traceback
 import html
+import collections
 import aiohttp.web
 
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 _sessions: dict = {}
+
+# ── Debug log buffer ──────────────────────────────────────────────────────────
+_LOG_BUFFER: collections.deque = collections.deque(maxlen=200)
+_LOG_LEVELS = {"INFO": "#58a6ff", "WARN": "#d29922", "ERROR": "#f85149", "EVENT": "#3fb950"}
+
+
+def log_event(level: str, message: str) -> None:
+    """Append a timestamped entry to the in-memory debug log (200-entry ring buffer)."""
+    _LOG_BUFFER.append({
+        "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "level": level.upper(),
+        "message": message,
+    })
 
 _CSS = """
 * { box-sizing: border-box; }
@@ -55,6 +69,7 @@ def _page(title: str, body: str, nav: bool = True) -> aiohttp.web.Response:
   <a href="/shop">Shop</a>
   <a href="/stocks">Stocks</a>
   <a href="/messages">Messages</a>
+  <a href="/logs">Logs</a>
   <a href="/logout">Logout</a>
 </nav>"""
     return aiohttp.web.Response(
@@ -240,6 +255,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             "ticker": ticker,
         }
         save_eco(eco)
+        log_event("WARN", f"[Admin] Target set for guild {guild_id}: {name} / {usernames} / ${ticker}")
         return aiohttp.web.HTTPFound("/?ok=Target+saved")
 
     # ── Economy ──────────────────────────────────────────────────────────────
@@ -314,6 +330,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             eco.setdefault("balances", {})[uid] = amount
             msg = f"Set {uid} balance to {amount:,.0f}"
         save_eco(eco)
+        log_event("WARN", f"[Admin] Coin adjustment: {msg}")
         return aiohttp.web.HTTPFound(f"/economy?ok={msg.replace(' ', '+')}")
 
     # ── Shop ─────────────────────────────────────────────────────────────────
@@ -597,8 +614,10 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         if price <= 0:
             return aiohttp.web.HTTPFound("/stocks?err=Price+must+be+positive")
         eco = load_eco()
+        old_price = eco.get("market", {}).get(ticker, {}).get("price", "?")
         eco.setdefault("market", {}).setdefault(ticker, {})["price"] = price
         save_eco(eco)
+        log_event("WARN", f"[Admin] Stock price override: ${ticker} {old_price} → {price:.2f}")
         return aiohttp.web.HTTPFound(f"/stocks?ok=Set+{ticker}+price+to+{price:.2f}")
 
     # ── User Detail ──────────────────────────────────────────────────────────
@@ -752,6 +771,54 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             await tts_queue.put((guild_id, content))
         return aiohttp.web.HTTPFound(f"/messages?ok=Message+sent+to+%23{ch_name}")
 
+    # ── Debug log ─────────────────────────────────────────────────────────────
+
+    async def handle_logs(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+
+        level_filter = request.rel_url.query.get("level", "").upper()
+        entries = list(reversed(_LOG_BUFFER))
+        if level_filter and level_filter != "ALL":
+            entries = [e for e in entries if e["level"] == level_filter]
+
+        rows = ""
+        for e in entries:
+            color = _LOG_LEVELS.get(e["level"], "#c9d1d9")
+            rows += (
+                f"<tr>"
+                f"<td class='muted' style='white-space:nowrap'>{html.escape(e['ts'])}</td>"
+                f"<td style='color:{color};font-weight:bold;white-space:nowrap'>{html.escape(e['level'])}</td>"
+                f"<td style='word-break:break-word'>{html.escape(e['message'])}</td>"
+                f"</tr>"
+            )
+
+        if not rows:
+            rows = "<tr><td colspan=3 class='muted' style='text-align:center'>No log entries yet.</td></tr>"
+
+        filter_links = " &nbsp;".join(
+            f"<a href='/logs?level={lvl}' style='color:{col}'>{lvl}</a>"
+            for lvl, col in _LOG_LEVELS.items()
+        )
+
+        body = f"""
+<div class="panel" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <span>Filter: <a href="/logs">ALL</a> &nbsp;{filter_links}</span>
+  <span class="muted" style="font-size:.85em">Last {len(entries)} of {len(_LOG_BUFFER)} entries (newest first) — auto-refreshes every 15s</span>
+</div>
+<table>
+  <thead><tr><th style="width:180px">Time</th><th style="width:70px">Level</th><th>Message</th></tr></thead>
+  <tbody>{rows}</tbody>
+</table>
+<meta http-equiv="refresh" content="15">"""
+        return _page("Debug Log", body)
+
+    async def handle_clearlogs_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        _LOG_BUFFER.clear()
+        return aiohttp.web.HTTPFound("/logs")
+
     # ── Wire up routes ────────────────────────────────────────────────────────
 
     @aiohttp.web.middleware
@@ -781,4 +848,6 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_get("/user/{uid}", handle_user)
     app.router.add_get("/messages", handle_messages)
     app.router.add_post("/api/sendmessage", handle_sendmessage_api)
+    app.router.add_get("/logs", handle_logs)
+    app.router.add_post("/api/clearlogs", handle_clearlogs_api)
     return app

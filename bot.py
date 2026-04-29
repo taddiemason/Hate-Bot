@@ -31,7 +31,7 @@ def _t(s: str, guild_id=None) -> str:
              .replace("donovan", name.lower()))
 
 import aiohttp.web
-from web_admin import create_web_app, ADMIN_PASSWORD
+from web_admin import create_web_app, ADMIN_PASSWORD, log_event
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -2735,6 +2735,7 @@ async def on_ready():
     global _admin_server_started
     init_db()
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    log_event("INFO", f"Bot online: {bot.user} (ID: {bot.user.id}) — {len(bot.guilds)} guild(s)")
 
     # Restore persisted target (set by a previous vote or manual update)
     eco = load_economy()
@@ -2742,6 +2743,7 @@ async def on_ready():
     if saved:
         update_target(saved["name"], saved.get("usernames", []), saved.get("ticker"), save=False)
         print(f"[TARGET] Restored from economy.json: {TARGET_NAME} / {TARGET_USERNAMES} / ${TARGET_STOCK_TICKER}")
+        log_event("INFO", f"Target restored: {TARGET_NAME} / {TARGET_USERNAMES} / ${TARGET_STOCK_TICKER}")
 
     scheduled_roast.start()
     dividend_payout.start()
@@ -2761,6 +2763,7 @@ async def on_ready():
 @bot.event
 async def on_disconnect():
     print("[DEBUG] Bot disconnected from Discord")
+    log_event("WARN", "Bot disconnected from Discord")
 
 
 @bot.event
@@ -2770,6 +2773,7 @@ async def on_command_error(ctx, error):
     print(f"[ERROR] Command '{ctx.command}' raised: {error}")
     import traceback
     traceback.print_exception(type(error), error, error.__traceback__)
+    log_event("ERROR", f"Command '{ctx.command}' in #{getattr(ctx.channel, 'name', '?')} raised: {error}")
     await ctx.send(f"❌ Command error: `{error}`")
 
 
@@ -2901,6 +2905,7 @@ async def on_message(message):
 
             sent_msg = await message.channel.send(send_text)
             log_roast()
+            log_event("EVENT", f"Roast fired by {message.author.name} in #{message.channel.name} ({message.guild.name if message.guild else 'DM'})")
             asyncio.create_task(_apply_roast_stock_impact(gid))
 
             if tts_enabled or force_tts:
@@ -3053,12 +3058,14 @@ async def on_message(message):
                 for member in message.guild.members:
                     if not member.bot:
                         add_coins(member.id, bonus)
+                log_event("EVENT", f"Server milestone reached: {count} roasts — +{bonus} coins paid to all members")
                 await message.channel.send(
                     f"🎉 **SERVER MILESTONE: {count} total roasts!**\n"
                     f"Everyone gets **+{bonus} Roast Coins** for their dedication to roasting {tgt_name}!"
                 )
         except Exception as e:
             print(f"[ERROR] on_message crashed: {e}")
+            log_event("ERROR", f"on_message crashed in #{getattr(message.channel, 'name', '?')}: {e}")
             await message.channel.send(_t(random.choice(_GENERAL_ROASTS_TMPL), gid))
 
     await bot.process_commands(message)
