@@ -421,9 +421,10 @@ class RoastCog(commands.Cog):
                         f"Everyone gets **+{bonus} Roast Coins** for their dedication to roasting {tgt_name}!"
                     )
             except Exception as e:
-                print(f"[ERROR] on_message crashed: {e}")
+                import traceback
+                tb = traceback.format_exc()
+                print(f"[ERROR] on_message crashed: {e}\n{tb}")
                 log_event("ERROR", f"on_message crashed in #{getattr(message.channel, 'name', '?')}: {e}")
-                await message.channel.send(shared._t(random.choice(shared._GENERAL_ROASTS_TMPL), gid))
 
 
 

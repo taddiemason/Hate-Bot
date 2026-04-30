@@ -1352,38 +1352,44 @@ def get_question(message):
     return text.strip()
 
 
+async def _groq_call(messages, guild_id=None, retries=3):
+    """Call Groq with exponential backoff. Returns None on total failure."""
+    delay = 2
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            response = await groq_client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=messages,
+                max_tokens=100,
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] Groq attempt {attempt}/{retries} failed: {e}")
+            if attempt < retries:
+                await asyncio.sleep(delay)
+                delay *= 2
+    print(f"[ERROR] Groq failed after {retries} attempts: {last_err}")
+    return None
+
+
 async def ask_openai(question, guild_id=None):
     prompt = _t(_SYSTEM_PROMPT_TMPL, guild_id)
-    try:
-        response = await groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": question},
-            ],
-            max_tokens=100,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[ERROR] OpenAI request failed: {e}")
-        return _t(random.choice(_GENERAL_ROASTS_TMPL), guild_id)
+    result = await _groq_call(
+        [{"role": "system", "content": prompt}, {"role": "user", "content": question}],
+        guild_id,
+    )
+    return result if result is not None else _t(random.choice(_GENERAL_ROASTS_TMPL), guild_id)
 
 
 async def argue_with_donovan(message_content, guild_id=None):
     prompt = _t(_ARGUE_PROMPT_TMPL, guild_id)
-    try:
-        response = await groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": message_content},
-            ],
-            max_tokens=100,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"[ERROR] Donovan argue failed: {e}")
-        return _t(random.choice(_ROASTS_DIRECT_TMPL), guild_id)
+    result = await _groq_call(
+        [{"role": "system", "content": prompt}, {"role": "user", "content": message_content}],
+        guild_id,
+    )
+    return result if result is not None else _t(random.choice(_ROASTS_DIRECT_TMPL), guild_id)
 
 
 SPORTS_TRIVIA_FALLBACKS = [
