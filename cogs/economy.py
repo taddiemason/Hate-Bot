@@ -49,10 +49,13 @@ class EconomyCog(commands.Cog):
         save_economy(eco)
         add_coins(ctx.author.id, reward)
 
-        streak_msg = f" 🔥 **{streak} day streak!**" if streak > 1 else ""
-        milestone_msg = " 🎉 **7-DAY BONUS — DOUBLED!**" if streak % 7 == 0 else ""
+        _MILESTONES = {7: "🔥 **7-DAY STREAK — 2x COINS!**", 14: "🥇 **14-DAY STREAK — 3x COINS!**",
+                       21: "💎 **21-DAY STREAK — 4x COINS!**", 30: "🏆 **30-DAY STREAK — 5x COINS!**"}
+        multiplier = 5 if streak >= 30 else 4 if streak >= 21 else 3 if streak >= 14 else 2 if streak >= 7 else 1
+        streak_msg = f" 🔥 **{streak}-day streak** ({multiplier}x)" if streak > 1 else ""
+        milestone_msg = f"\n{_MILESTONES[streak]}" if streak in _MILESTONES else ""
         double_msg = " 💰 **Weekend 2x active!**" if is_double_coin_day() else ""
-        await ctx.send(f"✅ Daily check-in! **+{reward} coins**{streak_msg}{milestone_msg}{double_msg}")
+        await ctx.send(f"✅ Daily check-in! **+{reward} coins**{streak_msg}{double_msg}{milestone_msg}")
 
 
 

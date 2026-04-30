@@ -1320,10 +1320,18 @@ def is_double_coin_day():
 
 
 def get_daily_reward(streak):
-    base = 25 + (min(streak, 30) - 1) * 5
-    if streak % 7 == 0:
-        base *= 2
-    return base
+    base = 50
+    if streak >= 30:
+        multiplier = 5
+    elif streak >= 21:
+        multiplier = 4
+    elif streak >= 14:
+        multiplier = 3
+    elif streak >= 7:
+        multiplier = 2
+    else:
+        multiplier = 1
+    return base * multiplier
 
 
 def is_donovan(user, guild_id=None):
