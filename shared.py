@@ -1515,6 +1515,90 @@ async def generate_sports_question(sport, used_topics=None):
     return random.choice(SPORTS_TRIVIA_FALLBACKS)
 
 
+BUFFALO_TRIVIA_TOPICS = [
+    "Buffalo Bills history (1960s–present)",
+    "Buffalo Sabres history (1970–present)",
+    "Jim Kelly and the K-Gun offense",
+    "The four consecutive Super Bowl appearances (1991–1994)",
+    "Wide Right — Scott Norwood's missed field goal in Super Bowl XXV",
+    "The Music City Miracle lateral play (2000 AFC Wild Card)",
+    "13 Seconds — Josh Allen vs Patrick Mahomes 2022 divisional round",
+    "Dominik Hasek and the Buffalo Sabres dominance in the 1990s",
+    "The 1999 Stanley Cup Finals and the infamous 'No Goal' call",
+    "Pat LaFontaine and his time with the Sabres",
+    "Thurman Thomas, Andre Reed, Bruce Smith — Bills legends",
+    "Josh Allen era Bills (2018–present)",
+    "Stefon Diggs trade and impact on the Bills",
+    "Buffalo Bills draft history and notable picks",
+    "Buffalo Sabres draft history — Gilbert Perreault, Rick Martin",
+    "The Buffalo Bills Mafia and fan culture",
+    "Ralph Wilson Stadium / Highmark Stadium history",
+    "KeyBank Center / HSBC Arena history",
+    "Buffalo sports heartbreaks and iconic moments",
+]
+
+async def generate_buffalo_question(used_topics=None):
+    import re
+    avoid = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
+             if used_topics else "")
+    try:
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Buffalo sports trivia question generator. Generate one trivia question specifically about Buffalo, NY sports — the Buffalo Bills (NFL), Buffalo Sabres (NHL), or general Buffalo sports history and culture.\n"
+                        "TOPIC IDEAS (pick from these or similar):\n"
+                        "- Bills Super Bowl runs, heartbreaks, and legends (Jim Kelly, Thurman Thomas, Andre Reed, Bruce Smith, Josh Allen)\n"
+                        "- Sabres history (Dominik Hasek, Pat LaFontaine, Gilbert Perreault, the No Goal controversy)\n"
+                        "- Iconic moments: Wide Right, Music City Miracle, 13 Seconds, No Goal\n"
+                        "- Stadium/arena history, draft picks, coaching history\n"
+                        "STRICT RULES:\n"
+                        "- Only generate questions about facts you are 100% certain are correct\n"
+                        "- Questions should range from easy (iconic moments everyone knows) to hard (specific stats or dates)\n"
+                        "- ANSWER must be a last name only (for players/coaches) or a short specific phrase (for events/years) — nothing else\n"
+                        "- Never put extra explanation in the ANSWER field\n"
+                        f"{avoid}\n"
+                        "Respond in EXACTLY this format:\n"
+                        "QUESTION: <question>\n"
+                        "ANSWER: <answer>"
+                    ),
+                },
+                {"role": "user", "content": "Generate a Buffalo sports trivia question."},
+            ],
+            max_tokens=120,
+        )
+        text = response.choices[0].message.content.strip()
+        question, answer = "", ""
+        for line in text.split("\n"):
+            upper = line.upper()
+            if upper.startswith("QUESTION:"):
+                question = line[line.index(":") + 1:].strip()
+            elif upper.startswith("ANSWER:"):
+                raw = line[line.index(":") + 1:].strip()
+                raw = re.sub(r'[^\w\s]', '', raw).strip()
+                answer = " ".join(raw.split()[:4])
+        if question and answer:
+            return question, answer
+    except Exception as e:
+        print(f"[ERROR] Buffalo trivia generation failed: {e}")
+    # Hardcoded fallbacks in case Groq fails
+    return random.choice([
+        ("Who kicked the missed field goal for the Bills in Super Bowl XXV, forever known as 'Wide Right'?", "Norwood"),
+        ("How many consecutive Super Bowls did the Buffalo Bills appear in?", "Four"),
+        ("What Bills QB led the K-Gun offense through the four Super Bowl runs?", "Kelly"),
+        ("What is the name of the infamous lateral play that eliminated the Bills in the 2000 AFC Wild Card game?", "Music City Miracle"),
+        ("Which Bills receiver caught the most touchdown passes in franchise history?", "Reed"),
+        ("What Sabres goalie won the Hart Trophy as league MVP in 1997?", "Hasek"),
+        ("What controversial call in the 1999 Stanley Cup Finals cost the Sabres a potential tying goal?", "No Goal"),
+        ("Which Bills defensive end holds the NFL record for career sacks?", "Smith"),
+        ("What year did the Buffalo Sabres enter the NHL as an expansion team?", "1970"),
+        ("Who did the Bills trade for wide receiver Stefon Diggs in 2020?", "Vikings"),
+    ])
+
+
+
 TRIVIA_CATEGORIES = [
     "science and nature",
     "world history",
