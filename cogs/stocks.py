@@ -109,13 +109,16 @@ class StocksCog(commands.Cog):
                 continue
 
             old_base = mdata.get("dynamic_base", info["base_price"])
-            history = mdata.get("price_history", [mdata["price"]])
+            origin   = info["base_price"]
+            history  = mdata.get("price_history", [mdata["price"]])
             recent_avg = sum(history) / len(history)
 
-            # Shift base 30% toward the weekly average, capped at ±10% per week
-            raw_new_base = old_base * 0.70 + recent_avg * 0.30
+            # Shift base 20% toward the weekly average, 5% back toward origin
+            raw_new_base = old_base * 0.75 + recent_avg * 0.20 + origin * 0.05
             max_shift = old_base * 0.10
             new_base = max(old_base - max_shift, min(old_base + max_shift, raw_new_base))
+            # Hard cap: dynamic_base can't stray more than 50% from origin
+            new_base = max(origin * 0.50, min(origin * 1.50, new_base))
             new_base = round(new_base, 2)
             mdata["dynamic_base"] = new_base
 
@@ -1071,6 +1074,62 @@ class StocksCog(commands.Cog):
         await ctx.send("\n".join(lines))
 
 
+    @commands.command(name="stockhelp")
+    async def stock_help(self, ctx):
+        pages = [
+            (
+                "📈 **Stock Market Guide — Basics**\n\n"
+                "**`!stockmarket`** — Live prices, sentiment, volume, and top portfolios.\n"
+                "**`!stocktrend <TICKER>`** — Price history, 30min/2hr/8hr % change, short interest.\n"
+                "**`!portfolio [@user]`** — Your holdings and unrealised P&L.\n\n"
+                "**Buying & Selling**\n"
+                "`!buystock <TICKER> <shares>` — Buy shares at market price.\n"
+                "`!sellstock <TICKER> <shares>` — Sell shares you own.\n\n"
+                "**Shorting** _(bet a stock goes down)_\n"
+                "`!short <TICKER> <shares>` — Borrow and sell shares; profit if price drops.\n"
+                "`!cover <TICKER> <shares>` — Buy back shares to close your short.\n"
+                "⚠️ Shorts require 150% of position value as margin. If margin drops below 110% you get margin-called.\n\n"
+                "**Limit Orders**\n"
+                "`!limitorder <buy|sell|short|cover> <TICKER> <shares> <price>` — Execute automatically when price hits target.\n"
+                "`!orders` — View your pending limit orders.\n"
+                "`!cancelorder <id>` — Cancel a limit order.\n\n"
+                "_Page 1/3 — use `!stockhelp2` and `!stockhelp3` for options & futures_"
+            ),
+            (
+                "📈 **Stock Market Guide — Options**\n\n"
+                "Options give you the **right** (not obligation) to buy/sell at a set price.\n\n"
+                "**`!buyoption <TICKER> <call|put> <strike> <days>`**\n"
+                "• **Call** — profits if price rises above strike before expiry.\n"
+                "• **Put** — profits if price falls below strike before expiry.\n"
+                "• Premium is calculated from volatility, time, and distance to strike.\n\n"
+                "**`!exercise <id>`** — Exercise an in-the-money option early.\n"
+                "**`!myoptions`** — View all your active options.\n\n"
+                "**Key terms**\n"
+                "• **In the money (ITM):** Call above strike / Put below strike — has real value.\n"
+                "• **Out of the money (OTM):** Option has no intrinsic value yet.\n"
+                "• **Expiry:** Unexercised options expire worthless.\n"
+                "• **Premium:** What you pay upfront; lost entirely if option expires OTM.\n\n"
+                "_Page 2/3_"
+            ),
+            (
+                "📈 **Stock Market Guide — Futures**\n\n"
+                "Futures are **leveraged contracts** — you control a large position with a small deposit.\n\n"
+                "**`!futures <long|short> <TICKER> <contracts>`**\n"
+                "• **Long** — profits if price rises.\n"
+                "• **Short** — profits if price falls.\n"
+                "• Each contract = 100 shares. Requires 20% margin deposit.\n\n"
+                "**`!closefutures <id>`** — Close a futures position and realise P&L.\n"
+                "**`!myfutures`** — View your open futures positions.\n\n"
+                "**Risk warning**\n"
+                "• Leverage amplifies both gains **and** losses.\n"
+                "• If your margin drops below 5% of position value you get **margin called** — position force-closed at a loss.\n"
+                "• Futures settle automatically after 30 days.\n\n"
+                "**Dividends** — `$RUST`, `$BIGMAC`, `$TORTA`, `$WENDY` pay weekly dividends to shareholders.\n\n"
+                "_Page 3/3_"
+            ),
+        ]
+        for page in pages:
+            await ctx.send(page)
 
 
 async def setup(bot):
