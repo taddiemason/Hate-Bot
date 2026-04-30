@@ -13,15 +13,19 @@ _sessions: dict = {}
 # ── Debug log buffer ──────────────────────────────────────────────────────────
 _LOG_BUFFER: collections.deque = collections.deque(maxlen=200)
 _LOG_LEVELS = {"INFO": "#58a6ff", "WARN": "#d29922", "ERROR": "#f85149", "EVENT": "#3fb950"}
+_LOG_FILE = os.path.join(os.path.dirname(__file__), "logs", "bot.log")
 
 
 def log_event(level: str, message: str) -> None:
-    """Append a timestamped entry to the in-memory debug log (200-entry ring buffer)."""
-    _LOG_BUFFER.append({
-        "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        "level": level.upper(),
-        "message": message,
-    })
+    """Append a timestamped entry to the in-memory ring buffer and persist to log file."""
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    _LOG_BUFFER.append({"ts": ts, "level": level.upper(), "message": message})
+    try:
+        os.makedirs(os.path.dirname(_LOG_FILE), exist_ok=True)
+        with open(_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] [{level.upper():5}] {message}\n")
+    except Exception:
+        pass
 
 _CSS = """
 * { box-sizing: border-box; }
@@ -869,15 +873,46 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             for lvl, col in _LOG_LEVELS.items()
         )
 
+        # ── Persistent file log (survives crashes) ────────────────────────────
+        file_log_html = ""
+        if os.path.exists(_LOG_FILE):
+            try:
+                with open(_LOG_FILE, "r", encoding="utf-8") as f:
+                    raw_lines = f.readlines()
+                last_lines = raw_lines[-200:]
+                file_rows = "".join(
+                    f"<tr><td style='word-break:break-word;font-size:.82em'>{html.escape(line.rstrip())}</td></tr>"
+                    for line in reversed(last_lines)
+                )
+                file_size = os.path.getsize(_LOG_FILE)
+                size_str = f"{file_size / 1024:.1f} KB" if file_size < 1024 * 1024 else f"{file_size / 1024 / 1024:.1f} MB"
+                file_log_html = f"""
+<h2>📄 Persistent Log File <span class="muted" style="font-size:.8em;font-weight:normal">— survives crashes — {len(raw_lines)} total lines ({size_str}) — showing last 200</span></h2>
+<div style="display:flex;gap:8px;margin-bottom:8px">
+  <a href="/logs/download" class="btn secondary" style="font-size:.85em">⬇ Download full log</a>
+  <a href="/logs/clearfile" class="btn danger" style="font-size:.85em" onclick="return confirm('Delete log file?')">🗑 Clear file</a>
+</div>
+<table>
+  <thead><tr><th>Entry (newest first)</th></tr></thead>
+  <tbody>{file_rows}</tbody>
+</table>"""
+            except Exception as exc:
+                file_log_html = f"<p class='msg err'>Could not read log file: {html.escape(str(exc))}</p>"
+        else:
+            file_log_html = "<p class='muted'>No log file yet — entries will appear here after the first event is logged.</p>"
+
         body = f"""
 <div class="panel" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
   <span>Filter: <a href="/logs">ALL</a> &nbsp;{filter_links}</span>
   <span class="muted" style="font-size:.85em">Last {len(entries)} of {len(_LOG_BUFFER)} entries (newest first) — auto-refreshes every 15s</span>
+  <a href="/logs/clearbuffer" class="btn danger" style="font-size:.85em;margin-left:auto" onclick="return confirm('Clear in-memory buffer?')">🗑 Clear buffer</a>
 </div>
+<h2>🧠 In-Memory Buffer <span class="muted" style="font-size:.8em;font-weight:normal">— lost on crash/restart</span></h2>
 <table>
   <thead><tr><th style="width:180px">Time</th><th style="width:70px">Level</th><th>Message</th></tr></thead>
   <tbody>{rows}</tbody>
 </table>
+{file_log_html}
 <meta http-equiv="refresh" content="15">"""
         return _page("Debug Log", body)
 
@@ -886,6 +921,34 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             return aiohttp.web.HTTPFound("/login")
         _LOG_BUFFER.clear()
         return aiohttp.web.HTTPFound("/logs")
+
+    async def handle_clearbuffer_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        _LOG_BUFFER.clear()
+        return aiohttp.web.HTTPFound("/logs")
+
+    async def handle_clearfile_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        try:
+            open(_LOG_FILE, "w").close()
+        except Exception:
+            pass
+        return aiohttp.web.HTTPFound("/logs")
+
+    async def handle_download_log(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        if not os.path.exists(_LOG_FILE):
+            return aiohttp.web.Response(text="No log file found.", status=404)
+        with open(_LOG_FILE, "rb") as f:
+            data = f.read()
+        return aiohttp.web.Response(
+            body=data,
+            content_type="text/plain",
+            headers={"Content-Disposition": "attachment; filename=bot.log"},
+        )
 
     # ── Wire up routes ────────────────────────────────────────────────────────
 
@@ -919,4 +982,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_post("/api/sendmessage", handle_sendmessage_api)
     app.router.add_get("/logs", handle_logs)
     app.router.add_post("/api/clearlogs", handle_clearlogs_api)
+    app.router.add_get("/logs/clearbuffer", handle_clearbuffer_api)
+    app.router.add_get("/logs/clearfile", handle_clearfile_api)
+    app.router.add_get("/logs/download", handle_download_log)
     return app

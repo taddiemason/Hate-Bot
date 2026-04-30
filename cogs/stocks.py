@@ -426,8 +426,7 @@ class StocksCog(commands.Cog):
     async def margin_call_checker(self):
         eco = load_economy()
         shared.init_market(eco)
-        gc = shared._get_guild_channels()
-        channel = gc[0][1] if gc else None
+        guild_channels = shared._get_guild_channels()
         now = datetime.datetime.now(datetime.timezone.utc)
         squeeze_msgs = []
 
@@ -450,16 +449,21 @@ class StocksCog(commands.Cog):
             old = eco["market"][ticker]["price"]
             shared._apply_price_event(eco["market"][ticker], old * (1 + spike_pct / 100))
             eco["market"][ticker]["last_squeeze"] = now.isoformat()
-            squeeze_msgs.append((ticker, old, new, round(shorted / outstanding * 100, 1), spike_pct))
+            squeeze_msgs.append((ticker, old, round(shorted / outstanding * 100, 1), spike_pct))
 
-        # Run margin calls (catches positions squeezed above threshold)
+        # Margin warnings (50%) and margin calls (80%) — per-guild pings
+        warnings = []
         liquidations = []
+        margin_warned = eco.setdefault("margin_warnings", {})
+
         for uid, positions in list(eco.get("short_positions", {}).items()):
             for ticker in list(positions.keys()):
                 pos = positions[ticker]
                 price = eco["market"][ticker]["price"]
                 loss = (price - pos["avg_price"]) * pos["shares"]
-                if loss >= pos["collateral"] * 0.80:
+                loss_pct = loss / pos["collateral"] if pos["collateral"] else 0
+
+                if loss_pct >= 0.80:
                     pnl = round((pos["avg_price"] - price) * pos["shares"], 2)
                     returned = max(round(pos["collateral"] + pnl, 2), 0)
                     shared.apply_price_impact(eco, ticker, pos["shares"], +1)
@@ -467,23 +471,47 @@ class StocksCog(commands.Cog):
                     del eco["short_positions"][uid][ticker]
                     if not eco["short_positions"][uid]:
                         del eco["short_positions"][uid]
+                    margin_warned.pop(f"{uid}:{ticker}", None)
                     liquidations.append((uid, ticker, pos["shares"], price, pnl, returned))
 
-        if squeeze_msgs or liquidations:
+                elif loss_pct >= 0.50:
+                    warn_key = f"{uid}:{ticker}"
+                    if warn_key not in margin_warned:
+                        margin_warned[warn_key] = True
+                        health = round((1 - loss_pct) * 100)
+                        warnings.append((uid, ticker, price, loss_pct, health))
+
+        if squeeze_msgs or liquidations or warnings:
             save_economy(eco)
-        if channel:
-            for ticker, old, new, si_pct, spike_pct in squeeze_msgs:
+
+        for gid, channel in guild_channels:
+            guild = channel.guild
+
+            for ticker, old, si_pct, spike_pct in squeeze_msgs:
+                new_price = eco["market"][ticker]["price"]
                 await channel.send(
                     f"🔥 **SHORT SQUEEZE — ${ticker}!** Short interest hit **{si_pct:.1f}%** of float. "
-                    f"Price spiked **+{spike_pct:.1f}%**: **${old:.2f}** → **${new:.2f}**. "
+                    f"Price spiked **+{spike_pct:.1f}%**: **${old:.2f}** → **${new_price:.2f}**. "
                     f"Short sellers getting squeezed! 💀"
                 )
+
+            for uid, ticker, price, loss_pct, health in warnings:
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
+                await channel.send(
+                    f"⚠️ **MARGIN WARNING** — {member.mention} your short on **${ticker}** has lost "
+                    f"**{loss_pct*100:.0f}%** of collateral (margin health: **{health}%**). "
+                    f"Current price: **${price:.2f}**. Cover now with `!cover` or risk liquidation at 80%."
+                )
+
             for uid, ticker, shares, price, pnl, returned in liquidations:
-                member = channel.guild.get_member(int(uid))
-                mention = member.mention if member else f"<@{uid}>"
+                member = guild.get_member(int(uid))
+                if not member:
+                    continue
                 pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 await channel.send(
-                    f"🚨 **MARGIN CALL** — {mention}'s short on **${ticker}** ({shares} shares) was "
+                    f"🚨 **MARGIN CALL** — {member.mention}'s short on **${ticker}** ({shares} shares) was "
                     f"force-liquidated at **${price:.2f}**. "
                     f"P&L: **{pnl_str} coins** | Returned: **{returned:.0f} coins**"
                 )
