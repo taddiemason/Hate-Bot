@@ -9,8 +9,8 @@ from shared import (
     load_economy, save_economy, add_coins, spend_coins, get_guild_target,
     is_donovan, record_trivia_win, get_portfolio_value, init_market, init_derivatives,
     _t, new_deck, card_str, hand_str, hand_value, is_blackjack,
-    generate_trivia_question, generate_sports_question, judge_trivia_answer,
-    judge_sports_answer, _trivia_quick_match, ask_openai,
+    generate_trivia_question, generate_sports_question, generate_buffalo_question,
+    judge_trivia_answer, judge_sports_answer, _trivia_quick_match, ask_openai,
     trivia_recent, trivia_recent_answers, trivia_recent_cats,
 )
 
@@ -409,6 +409,87 @@ class GamesCog(commands.Cog):
             gid = ctx.guild.id if ctx.guild else None
             tn = get_guild_target(gid)["name"]
             await ctx.send(f"Sports trivia crashed. Blame {tn}.")
+        finally:
+            shared.sports_trivia_active[channel_id] = False
+
+
+
+    @commands.command(name="buffalotrivia")
+    async def buffalo_trivia(self, ctx):
+        channel_id = ctx.channel.id
+        if shared.sports_trivia_active.get(channel_id):
+            await ctx.send("A trivia game is already running in this channel!")
+            return
+
+        shared.sports_trivia_active[channel_id] = True
+        scores = {}
+
+        try:
+            await ctx.send(
+                "🦬🏈🏒 **BUFFALO SPORTS TRIVIA** — 5 rounds, **25 coins** per correct answer!\n"
+                "Bills. Sabres. Heartbreak. Glory. Let's go Buffalo! 🔵🔴"
+            )
+            await asyncio.sleep(2)
+
+            used_topics = []
+            for round_num in range(1, 6):
+                question, answer = await generate_buffalo_question(used_topics)
+                used_topics.append(f"{answer} (from: {question[:60]})")
+
+                await ctx.send(f"**Round {round_num}/5**\n\n_{question}_\n\n⏱️ 30 seconds!")
+
+                def check(m):
+                    return m.channel.id == channel_id and not m.author.bot and not m.content.startswith("!") and len(m.content.strip()) > 1
+
+                winner = None
+                deadline = asyncio.get_running_loop().time() + 30
+
+                while True:
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        break
+                    try:
+                        msg = await self.bot.wait_for("message", check=check, timeout=remaining)
+                        user_answer = msg.content.strip()
+                        if len(user_answer.split()) > 6:
+                            correct = answer.lower() in user_answer.lower()
+                        else:
+                            correct = await judge_sports_answer(question, answer, user_answer)
+                        if correct:
+                            winner = msg.author
+                            break
+                    except asyncio.TimeoutError:
+                        break
+
+                if winner:
+                    add_coins(winner.id, 25)
+                    record_trivia_win(winner.id)
+                    scores[winner.id] = scores.get(winner.id, 0) + 25
+                    await ctx.send(f"✅ **{winner.display_name}** got it! The answer was **{answer}** — **+25 coins!**")
+                else:
+                    await ctx.send(f"⏱️ Time's up! The answer was **{answer}**.")
+
+                if round_num < 5:
+                    await asyncio.sleep(3)
+
+            if scores:
+                top = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+                board = "\n".join(
+                    f"{ctx.guild.get_member(uid).display_name if ctx.guild.get_member(uid) else 'Unknown'}: {c} coins"
+                    for uid, c in top
+                )
+                mvp = ctx.guild.get_member(top[0][0])
+                mvp_name = mvp.display_name if mvp else "Unknown"
+                await ctx.send(
+                    f"🦬 **BUFFALO TRIVIA OVER!**\n\n{board}\n\n"
+                    f"MVP: **{mvp_name}** with **{top[0][1]} coins** earned! Let's gooo Buffalo!"
+                )
+            else:
+                await ctx.send("🦬 **BUFFALO TRIVIA OVER!** Nobody scored. You all failed this city.")
+
+        except Exception as e:
+            print(f"[ERROR] Buffalo trivia crashed: {e}")
+            await ctx.send("Buffalo trivia crashed. Fitting, really.")
         finally:
             shared.sports_trivia_active[channel_id] = False
 
