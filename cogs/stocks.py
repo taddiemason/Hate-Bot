@@ -308,7 +308,7 @@ class StocksCog(commands.Cog):
         # ── News events (9am–midnight EST only) ──────────────────────────────────
         immediate_news = []
         for ticker in (shared.MARKET_STOCKS if now_est.hour >= 9 else []):
-            if random.random() > 0.015:
+            if random.random() > 0.025:
                 continue
             event = random.choice(shared._STOCK_NEWS[ticker])
             headline = event["headline"]
