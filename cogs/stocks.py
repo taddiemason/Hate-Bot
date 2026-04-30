@@ -325,7 +325,7 @@ class StocksCog(commands.Cog):
         tickers_shuffled = list(shared.MARKET_STOCKS)
         random.shuffle(tickers_shuffled)
         for ticker in (tickers_shuffled if now_est.hour >= 9 else []):
-            if random.random() > 0.01:
+            if random.random() > 0.016:
                 continue
             event = random.choice(shared._STOCK_NEWS[ticker])
             headline = event["headline"]
