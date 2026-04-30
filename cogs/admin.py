@@ -183,6 +183,7 @@ class AdminCog(commands.Cog):
 
 
 
+    @commands.command(name="commands")
     async def commands_list(self, ctx):
         gid = ctx.guild.id if ctx.guild else None
         tgt = get_guild_target(gid)
