@@ -244,7 +244,7 @@ class StocksCog(commands.Cog):
                 new_p = eco["market"][rumor["ticker"]]["price"]
                 analyst = random.choice(shared._ANALYST_QUOTES)
                 for gid, ch in broadcast_channels:
-                    localized = shared._t(rumor['headline'], gid)
+                    localized = shared._t(rumor['headline'], gid).replace("{member}", shared._get_random_member_name(gid))
                     await ch.send(
                         f"✅ **CONFIRMED — ${rumor['ticker']}:** {localized}\n"
                         f"**${rumor['old_price']:.2f} → ${new_p:.2f}** | {analyst}"
@@ -255,7 +255,7 @@ class StocksCog(commands.Cog):
                         old = eco["market"][t]["price"]
                         shared._apply_price_event(eco["market"][t], old * (1 - pct / 100))
                 for gid, ch in broadcast_channels:
-                    localized = shared._t(rumor['headline'], gid)
+                    localized = shared._t(rumor['headline'], gid).replace("{member}", shared._get_random_member_name(gid))
                     await ch.send(
                         f"❌ **DENIED — ${rumor['ticker']}:** *\"{localized}\"* was **FAKE NEWS**. "
                         f"Price reverting. 📉"
@@ -324,8 +324,6 @@ class StocksCog(commands.Cog):
                 continue
             event = random.choice(shared._STOCK_NEWS[ticker])
             headline = event["headline"]
-            if "{member}" in headline:
-                headline = headline.replace("{member}", _get_random_member_name())
 
             impact_pct = random.uniform(*event["impact"])
             impacts = {ticker: impact_pct}
@@ -352,7 +350,7 @@ class StocksCog(commands.Cog):
                 pre_pct = pre_impact[ticker]
                 cur_p = eco["market"][ticker]["price"]
                 for gid, ch in broadcast_channels:
-                    localized = shared._t(headline, gid)
+                    localized = shared._t(headline, gid).replace("{member}", shared._get_random_member_name(gid))
                     await ch.send(
                         f"🔍 **UNCONFIRMED — ${ticker}:** *\"{localized}\"*\n"
                         f"Markets reacting cautiously: **${cur_p:.2f}** ({pre_pct:+.1f}% pre-move) "
@@ -377,7 +375,7 @@ class StocksCog(commands.Cog):
                 for t, pct in impacts.items() if t != ticker
             )
             for gid, ch in broadcast_channels:
-                localized = shared._t(headline, gid)
+                localized = shared._t(headline, gid).replace("{member}", shared._get_random_member_name(gid))
                 msg_text = (
                     f"{arrow} **BREAKING — ${ticker}:** {localized}\n"
                     f"**${old_p:.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
