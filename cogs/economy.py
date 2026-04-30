@@ -16,6 +16,17 @@ class EconomyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    def _resolve_name(self, uid: int, ctx_guild) -> str:
+        """Look up a display name, searching all bot guilds if not in the current one."""
+        member = ctx_guild.get_member(uid)
+        if member:
+            return member.display_name
+        for guild in self.bot.guilds:
+            member = guild.get_member(uid)
+            if member:
+                return member.display_name
+        return f"User {uid}"
+
     @commands.command(name="daily")
     async def daily_checkin(self, ctx):
         eco = load_economy()
@@ -191,8 +202,7 @@ class EconomyCog(commands.Cog):
         top = sorted(eco["balances"].keys(), key=net_worth, reverse=True)[:5]
         lines = []
         for i, uid in enumerate(top, 1):
-            member = ctx.guild.get_member(int(uid))
-            name = member.display_name if member else "Unknown"
+            name = self._resolve_name(int(uid), ctx.guild)
             cash = round(eco["balances"].get(str(uid), 0))
             total = net_worth(uid)
             portfolio = round(total - cash)
@@ -404,8 +414,7 @@ class EconomyCog(commands.Cog):
             return
         lines = []
         for l in listings:
-            seller = ctx.guild.get_member(int(l["seller_id"]))
-            name = seller.display_name if seller else "Unknown"
+            name = self._resolve_name(int(l["seller_id"]), ctx.guild)
             item = shared.SHOP_ITEMS.get(l["item"], {}).get("name", l["item"])
             lines.append(f"**#{l['id']}** — {item} by {name} — {l['price']} coins  →  `!buyitem {l['id']}`")
         await ctx.send("🕶️ **Black Market**\n\n" + "\n".join(lines))
@@ -476,8 +485,7 @@ class EconomyCog(commands.Cog):
         top = sorted(wins.items(), key=lambda x: x[1], reverse=True)[:10]
         lines = []
         for i, (uid, count) in enumerate(top, 1):
-            member = ctx.guild.get_member(int(uid))
-            name = member.display_name if member else "Unknown"
+            name = self._resolve_name(int(uid), ctx.guild)
             lines.append(f"{i}. **{name}** — {count} win{'s' if count != 1 else ''}")
         await ctx.send("🧠 **Trivia Leaderboard** _(all-time wins across !trivia and !sportstrivia)_\n" + "\n".join(lines))
 

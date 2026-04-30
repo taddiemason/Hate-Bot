@@ -17,6 +17,16 @@ class StocksCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    def _resolve_name(self, uid: int, ctx_guild) -> str:
+        member = ctx_guild.get_member(uid)
+        if member:
+            return member.display_name
+        for guild in self.bot.guilds:
+            member = guild.get_member(uid)
+            if member:
+                return member.display_name
+        return f"User {uid}"
+
     async def cog_load(self):
         self.dividend_payout.start()
         self.earnings_report.start()
@@ -631,8 +641,7 @@ class StocksCog(commands.Cog):
             ranked = sorted(all_uids, key=lambda u: get_portfolio_value(eco, u), reverse=True)[:5]
             lines.append("\n**Top Portfolio Values:**")
             for uid in ranked:
-                member = ctx.guild.get_member(int(uid))
-                name = member.display_name if member else "Unknown"
+                name = self._resolve_name(int(uid), ctx.guild)
                 val = get_portfolio_value(eco, uid)
                 lines.append(f"  **{name}** — {val:.0f} coins")
 
