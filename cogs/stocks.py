@@ -320,10 +320,12 @@ class StocksCog(commands.Cog):
             mdata["all_time_high"]  = max(mdata.get("all_time_high", new_price), new_price)
             mdata["all_time_low"]   = min(mdata.get("all_time_low",  new_price), new_price)
 
-        # ── News events (9am–midnight EST only) ──────────────────────────────────
+        # ── News events (9am–midnight EST only) — max 1 per tick ────────────────
         immediate_news = []
-        for ticker in (shared.MARKET_STOCKS if now_est.hour >= 9 else []):
-            if random.random() > 0.025:
+        tickers_shuffled = list(shared.MARKET_STOCKS)
+        random.shuffle(tickers_shuffled)
+        for ticker in (tickers_shuffled if now_est.hour >= 9 else []):
+            if random.random() > 0.01:
                 continue
             event = random.choice(shared._STOCK_NEWS[ticker])
             headline = event["headline"]
@@ -366,6 +368,7 @@ class StocksCog(commands.Cog):
                         old = eco["market"][t]["price"]
                         shared._apply_price_event(eco["market"][t], old * (1 + pct / 100))
                 immediate_news.append((ticker, headline, impact_pct, old_price, impacts))
+            break  # one news event per tick max
 
         # ── Price alerts ─────────────────────────────────────────────────────────
         remaining_alerts = []
