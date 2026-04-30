@@ -367,6 +367,27 @@ class StocksCog(commands.Cog):
                         shared._apply_price_event(eco["market"][t], old * (1 + pct / 100))
                 immediate_news.append((ticker, headline, impact_pct, old_price, impacts))
 
+        # ── Price alerts ─────────────────────────────────────────────────────────
+        remaining_alerts = []
+        for alert in eco.get("stock_alerts", []):
+            t = alert["ticker"]
+            if t not in eco.get("market", {}):
+                remaining_alerts.append(alert)
+                continue
+            current = eco["market"][t]["price"]
+            triggered = (alert["direction"] == "above" and current >= alert["target"]) or \
+                        (alert["direction"] == "below" and current <= alert["target"])
+            if triggered:
+                ch = self.bot.get_channel(alert["channel_id"])
+                if ch:
+                    asyncio.ensure_future(ch.send(
+                        f"🔔 <@{alert['uid']}> **${t}** hit your alert target of **${alert['target']:.2f}** "
+                        f"(now **${current:.2f}**)"
+                    ))
+            else:
+                remaining_alerts.append(alert)
+        eco["stock_alerts"] = remaining_alerts
+
         save_economy(eco)
 
         for ticker, headline, impact_pct, old_p, impacts in immediate_news:
@@ -808,9 +829,11 @@ class StocksCog(commands.Cog):
                 pnl = round((price - pos["avg_cost"]) * pos["shares"], 2)
                 pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 total_value += value
+                pct = (price / pos["avg_cost"] - 1) * 100 if pos["avg_cost"] else 0
+                pct_str = f"{pct:+.1f}%"
                 lines.append(
                     f"  **${ticker}** — {pos['shares']} shares @ avg ${pos['avg_cost']:.2f} | "
-                    f"Now: ${price:.2f} | Value: {value:.0f} | P&L: **{pnl_str}**"
+                    f"Now: ${price:.2f} ({pct_str}) | Value: {value:.0f} | P&L: **{pnl_str}**"
                 )
         if shorts:
             lines.append("\n**Short Positions:**")
@@ -819,12 +842,41 @@ class StocksCog(commands.Cog):
                 pnl = round((pos["avg_price"] - price) * pos["shares"], 2)
                 pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 total_value += pos["collateral"] + pnl
+                pct = (pos["avg_price"] / price - 1) * 100 if price else 0
+                pct_str = f"{pct:+.1f}%"
                 lines.append(
                     f"  **${ticker}** — {pos['shares']} shares short @ ${pos['avg_price']:.2f} | "
-                    f"Now: ${price:.2f} | Collateral: {pos['collateral']:.0f} | P&L: **{pnl_str}**"
+                    f"Now: ${price:.2f} ({pct_str}) | Collateral: {pos['collateral']:.0f} | P&L: **{pnl_str}**"
                 )
         lines.append(f"\n**Total Portfolio Value: {total_value:.0f} coins**")
         await ctx.send("\n".join(lines))
+
+
+    @commands.command(name="stockalert")
+    async def stock_alert(self, ctx, ticker: str = None, price: float = None):
+        """Set a price alert: !stockalert TICKER 42.50"""
+        if not ticker or price is None:
+            await ctx.send("Usage: `!stockalert <TICKER> <price>` — you'll be pinged when the stock crosses that price.")
+            return
+        ticker = ticker.upper()
+        if ticker not in shared.MARKET_STOCKS:
+            await ctx.send(f"Unknown ticker **${ticker}**. Check `!stockmarket` for valid tickers.")
+            return
+        eco = load_economy()
+        alerts = eco.setdefault("stock_alerts", [])
+        # Remove existing alert for same user+ticker
+        eco["stock_alerts"] = [a for a in alerts if not (a["uid"] == str(ctx.author.id) and a["ticker"] == ticker)]
+        current = eco.get("market", {}).get(ticker, {}).get("price", 0)
+        direction = "above" if price > current else "below"
+        eco["stock_alerts"].append({
+            "uid": str(ctx.author.id),
+            "ticker": ticker,
+            "target": price,
+            "direction": direction,
+            "channel_id": ctx.channel.id,
+        })
+        save_economy(eco)
+        await ctx.send(f"🔔 Alert set: you'll be pinged when **${ticker}** goes **{direction} ${price:.2f}** (currently ${current:.2f}).")
 
 
 

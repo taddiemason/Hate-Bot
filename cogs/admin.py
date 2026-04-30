@@ -188,64 +188,81 @@ class AdminCog(commands.Cog):
         tgt = get_guild_target(gid)
         tn = tgt["name"]
         ticker = tgt["ticker"]
-        await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (1/3)**\n\n"
-            f"**`@{tn} Hate Bot`** — Roasts {tn}. Ask it a question for a smart response.\n"
-            f"**`!Trial <reason>`** — Puts {tn} on trial. Server votes guilty/not guilty for 60 seconds.\n"
-            f"**`!Guesswhosaidit`** — 3 round game. Guess if the quote was {tn} or someone else.\n"
-            f"**`!TTS on/off`** — Toggles voice channel roasts. ({tn} cannot use this.)\n\n"
-            "**💰 Economy**\n"
-            "**`!balance`** — Check your Roast Coin balance.\n"
-            "**`!leaderboard`** — Top 5 coin holders.\n"
-            "**`!shop`** — View upgrades for sale.\n"
-            "**`!buy <item>`** — Purchase an upgrade (goes to inventory).\n"
-            "**`!inventory`** — View your owned and armed items.\n"
-            "**`!use <item>`** — Arm an item from your inventory (fires on next @mention).\n"
-            "**`!bounty <amount> <description>`** — Post a bounty paid to whoever triggers the next roast.\n"
-            "**`!bounties`** — View active bounties.\n"
-            f"**`!insurance <minutes>`** — {tn} only: buy temporary (useless) protection.\n"
-            "**`!give @user <amount>`** — Transfer coins to another member.\n"
-            "**`!blackmarket`** — View peer-to-peer upgrade listings.\n"
-            "**`!listitem <item> <price>`** — List an owned upgrade for sale.\n"
-            "**`!buyitem <id>`** — Buy an upgrade from the black market.\n"
-            "**`!settarget <name> <username> [ticker]`** — (Admin) Set who the bot hates on this server.\n"
-            "**`!setup`** — (Admin) Register this channel as the roast channel for this server."
-        )
-        await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (2/3)**\n\n"
-            "**🎮 Minigames & Rewards**\n"
-            "**`!daily`** — 25 coin daily check-in. Streak builds a multiplier, doubles at 7 days.\n"
-            "**`!flip <amount> heads/tails`** — Coinflip gamble.\n"
-            "**`!slots <amount>`** — Slot machine. Match symbols for big payouts.\n"
-            "**`!trivia`** — First to answer wins 50 coins.\n"
-            "**`!sportstrivia`** — 5 rounds of AI-generated NHL/NFL/NBA trivia. 20 coins per correct answer.\n"
-            "**`!guessroast`** — Roast posted with name blanked, guess who it's about.\n"
-            "**`!dice @user <amount>`** — Challenge someone to a dice duel. Roll 1-100, highest wins the pot. Ties re-roll.\n"
-            "**`!highlow <amount>`** — Guess higher or lower, chain correct answers for a multiplier.\n"
-            "**`!blackjack [bet]`** — Multiplayer blackjack vs the dealer. Bet defaults to 10 coins. Others can join before the round starts.\n"
-            "**`!lottery <amount>`** — Buy lottery tickets (10 coins each). Drawn every Sunday at 9 PM EST."
-        )
-        await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (3/3)**\n\n"
-            "**📈 Stock Market**\n"
-            f"**`!stockmarket`** — View current prices for all stocks (${ticker}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
-            "**`!stocktrend <TICKER>`** — Sparkline chart, 30min/2hr/8hr performance, momentum indicator, and range for any stock.\n"
-            "**`!buystock <TICKER> <shares>`** — Buy shares at market price.\n"
-            "**`!sellstock <TICKER> <shares>`** — Sell shares you own.\n"
-            "**`!short <TICKER> <shares>`** — Open a short position (profit if price drops).\n"
-            "**`!cover <TICKER> <shares>`** — Close a short position.\n"
-            "**`!portfolio [@user]`** — View your (or someone else's) open positions and P&L.\n"
-            "**`!limitorder <buy|sell|short|cover> <TICKER> <shares> <price>`** — Place a limit order that fills automatically.\n"
-            "**`!orders`** — View your pending limit orders.\n"
-            "**`!cancellimit <id>`** — Cancel a pending limit order.\n"
-            "**`!futures <long|short> <TICKER> <contracts>`** — Open a leveraged 7-day futures contract (20% margin).\n"
-            "**`!closefutures <id>`** — Close a futures contract early.\n"
-            "**`!myfutures`** — View your open futures contracts.\n"
-            "**`!buyoption <call|put> <TICKER> <contracts> <strike> [days]`** — Buy a call or put option.\n"
-            "**`!exercise <id>`** — Exercise an option if it's in the money.\n"
-            "**`!myoptions`** — View your open options.\n\n"
-            "**`!commands`** — Shows this list."
-        )
+
+        # Auto-generate from registered bot commands
+        all_cmds = sorted(self.bot.commands, key=lambda c: c.name)
+        registered = {c.name for c in all_cmds}
+
+        # Curated descriptions — falls back to command name if not listed here
+        descriptions = {
+            "balance": "Check your Roast Coin balance.",
+            "leaderboard": "Top 5 holders by net worth.",
+            "trivialeaderboard": "All-time trivia winners.",
+            "shop": "View upgrades for sale.",
+            "buy": "Purchase an upgrade (goes to inventory).",
+            "inventory": "View your owned and armed items.",
+            "use": "Arm an item (fires on next @mention).",
+            "bounty": "Post a bounty paid to whoever triggers the next roast.",
+            "bounties": "View active bounties.",
+            "insurance": f"{tn} only: buy temporary (useless) protection.",
+            "give": "Transfer coins to another member.",
+            "blackmarket": "View peer-to-peer upgrade listings.",
+            "listitem": "List an owned upgrade for sale.",
+            "buyitem": "Buy an upgrade from the black market.",
+            "daily": "Daily check-in. Streak multiplier: 1x→2x→3x→4x→5x.",
+            "flip": "Coinflip gamble.",
+            "slots": "Slot machine.",
+            "trivia": "First to answer wins 50 coins.",
+            "sportstrivia": "5-round AI sports trivia. 20 coins per correct answer.",
+            "guessroast": "Roast posted with name blanked — guess who.",
+            "dice": "Challenge someone to a dice duel.",
+            "highlow": "Guess higher or lower, chain for a multiplier.",
+            "blackjack": "Multiplayer blackjack vs the dealer.",
+            "lottery": "Buy lottery tickets. Drawn every Sunday at 9 PM EST.",
+            "Trial": f"Put {tn} on trial. Server votes for 60 seconds.",
+            "Guesswhosaidit": f"Guess if the quote was {tn} or someone else.",
+            "TTS": "Toggle voice channel roasts.",
+            "stockmarket": f"Live prices for all stocks including ${ticker}.",
+            "stocktrend": "Sparkline chart and % change for any ticker.",
+            "stockalert": "Set a price alert — get pinged when a stock crosses your target.",
+            "stockhelp": "3-page guide to stocks, options, and futures.",
+            "buystock": "Buy shares at market price.",
+            "sellstock": "Sell shares you own.",
+            "short": "Open a short position (profit if price drops).",
+            "cover": "Close a short position.",
+            "portfolio": "Your open positions and P&L with % gain/loss.",
+            "limitorder": "Place a limit order that fills automatically.",
+            "orders": "View your pending limit orders.",
+            "cancellimit": "Cancel a pending limit order.",
+            "futures": "Open a leveraged futures contract (20% margin).",
+            "closefutures": "Close a futures contract early.",
+            "myfutures": "View your open futures contracts.",
+            "buyoption": "Buy a call or put option.",
+            "exercise": "Exercise an in-the-money option.",
+            "myoptions": "View your active options.",
+            "settarget": "(Admin) Set who the bot hates on this server.",
+            "setup": "(Admin) Register this channel as the roast channel.",
+            "update": "(Admin) Pull latest changes from GitHub.",
+            "commands": "Shows this list.",
+        }
+
+        lines = [f"📋 **{tn} Hate Bot — All Commands** _(auto-generated, {len(registered)} total)_\n"]
+        for cmd in all_cmds:
+            desc = descriptions.get(cmd.name, "")
+            lines.append(f"**`!{cmd.name}`**{' — ' + desc if desc else ''}")
+
+        # chunk into ≤1900-char messages
+        chunk, chunks = "", []
+        for line in lines:
+            if len(chunk) + len(line) + 1 > 1900:
+                chunks.append(chunk)
+                chunk = ""
+            chunk += line + "\n"
+        if chunk:
+            chunks.append(chunk)
+
+        for i, c in enumerate(chunks, 1):
+            await ctx.send(f"{c}\n_Page {i}/{len(chunks)}_" if len(chunks) > 1 else c)
 
 
 async def setup(bot):
