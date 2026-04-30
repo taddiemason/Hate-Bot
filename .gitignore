@@ -4,3 +4,6 @@ roast_log.json
 economy.json
 __pycache__/
 *.pyc
+*.db
+logs/
+venv/
