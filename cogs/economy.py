@@ -1,4 +1,5 @@
 import asyncio
+import random
 import datetime
 from zoneinfo import ZoneInfo
 import discord
@@ -45,17 +46,36 @@ class EconomyCog(commands.Cog):
         if is_double_coin_day():
             reward *= 2
 
+        jackpot_msg = ""
+        if random.random() < 0.05:
+            jackpot_mult = random.randint(2, 5)
+            reward *= jackpot_mult
+            jackpot_msg = f"\n🎰 **JACKPOT! {jackpot_mult}x bonus — lucky day!**"
+
         eco["daily_checkins"][uid] = {"last_checkin": today, "streak": streak}
         save_economy(eco)
         add_coins(ctx.author.id, reward)
 
-        _MILESTONES = {7: "🔥 **7-DAY STREAK — 2x COINS!**", 14: "🥇 **14-DAY STREAK — 3x COINS!**",
-                       21: "💎 **21-DAY STREAK — 4x COINS!**", 30: "🏆 **30-DAY STREAK — 5x COINS!**"}
-        multiplier = 5 if streak >= 30 else 4 if streak >= 21 else 3 if streak >= 14 else 2 if streak >= 7 else 1
-        streak_msg = f" 🔥 **{streak}-day streak** ({multiplier}x)" if streak > 1 else ""
+        _MILESTONES = {
+            7:  "🔥 **7-DAY STREAK — 200 coins/day!**",
+            14: "🥇 **14-DAY STREAK — 300 coins/day!**",
+            21: "💎 **21-DAY STREAK — 500 coins/day!**",
+            30: "🏆 **30-DAY STREAK — 800 coins/day!**",
+        }
+        if streak >= 30:
+            tier = "8x"
+        elif streak >= 21:
+            tier = "5x"
+        elif streak >= 14:
+            tier = "3x"
+        elif streak >= 7:
+            tier = "2x"
+        else:
+            tier = f"day {streak}"
+        streak_msg = f" 🔥 **{streak}-day streak** ({tier})" if streak > 1 else ""
         milestone_msg = f"\n{_MILESTONES[streak]}" if streak in _MILESTONES else ""
         double_msg = " 💰 **Weekend 2x active!**" if is_double_coin_day() else ""
-        await ctx.send(f"✅ Daily check-in! **+{reward} coins**{streak_msg}{double_msg}{milestone_msg}")
+        await ctx.send(f"✅ Daily check-in! **+{reward} coins**{streak_msg}{double_msg}{milestone_msg}{jackpot_msg}")
 
 
 
