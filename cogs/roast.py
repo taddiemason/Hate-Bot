@@ -5,7 +5,8 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands, tasks
 import shared
-from shared import load_economy, save_economy
+from shared import load_economy, save_economy, update_stocks_on_roast, claim_bounties
+from database import load_count, save_count, log_roast
 from web_admin import log_event
 
 class RoastCog(commands.Cog):
@@ -260,7 +261,7 @@ class RoastCog(commands.Cog):
                     force_tts = True
 
                 sent_msg = await message.channel.send(send_text)
-                shared.log_roast()
+                log_roast()
                 log_event("EVENT", f"Roast fired by {message.author.name} in #{message.channel.name} ({message.guild.name if message.guild else 'DM'})")
                 asyncio.create_task(shared._apply_roast_stock_impact(gid))
 
