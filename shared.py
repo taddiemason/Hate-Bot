@@ -1598,6 +1598,69 @@ async def generate_buffalo_question(used_topics=None):
     ])
 
 
+async def generate_buffalo_ny_question(used_topics=None):
+    """Generate a general Buffalo, NY trivia question (food, history, culture, landmarks)."""
+    import re
+    avoid = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
+             if used_topics else "")
+    try:
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a Buffalo, NY local knowledge trivia question generator. Generate one trivia question about Buffalo, New York — the city itself, NOT sports.\n"
+                        "TOPIC IDEAS (pick from these or similar):\n"
+                        "- Buffalo food culture: Buffalo wings (where were they invented?), beef on weck, sponge candy, loganberry, Perry's ice cream\n"
+                        "- Buffalo landmarks: Niagara Square, Canalside, Elmwood Village, Allentown, Delaware Park, the Albright-Knox Art Gallery\n"
+                        "- Buffalo history: the Pan-American Exposition, President McKinley's assassination, the Erie Canal, steel industry\n"
+                        "- Buffalo architecture: Frank Lloyd Wright's Darwin Martin House, H.H. Richardson buildings\n"
+                        "- Niagara Falls proximity and local geography\n"
+                        "- Famous people from Buffalo: Grover Cleveland, Wolf Blitzer, Tim Russert\n"
+                        "- Local culture: lake effect snow, the Blizzard of '77, chicken finger subs\n"
+                        "STRICT RULES:\n"
+                        "- Only generate questions about facts you are 100% certain are correct\n"
+                        "- ANSWER must be a short specific phrase, name, or year — nothing else\n"
+                        "- Never put extra explanation in the ANSWER field\n"
+                        f"{avoid}\n"
+                        "Respond in EXACTLY this format:\n"
+                        "QUESTION: <question>\n"
+                        "ANSWER: <answer>"
+                    ),
+                },
+                {"role": "user", "content": "Generate a Buffalo, NY local trivia question."},
+            ],
+            max_tokens=120,
+        )
+        text = response.choices[0].message.content.strip()
+        question, answer = "", ""
+        for line in text.split("\n"):
+            upper = line.upper()
+            if upper.startswith("QUESTION:"):
+                question = line[line.index(":") + 1:].strip()
+            elif upper.startswith("ANSWER:"):
+                raw = line[line.index(":") + 1:].strip()
+                raw = re.sub(r'[^\w\s]', '', raw).strip()
+                answer = " ".join(raw.split()[:4])
+        if question and answer:
+            return question, answer
+    except Exception as e:
+        print(f"[ERROR] Buffalo NY trivia generation failed: {e}")
+    return random.choice([
+        ("At which Buffalo restaurant were Buffalo wings invented?", "Anchor Bar"),
+        ("What is the name of the classic Buffalo sandwich served on a salt-crusted roll?", "Beef on Weck"),
+        ("What was the name of the 1901 World's Fair held in Buffalo?", "Pan-American Exposition"),
+        ("Which US President was assassinated at the Pan-American Exposition in Buffalo?", "McKinley"),
+        ("What famous architect designed the Darwin Martin House in Buffalo?", "Frank Lloyd Wright"),
+        ("What is the name of Buffalo's famous waterfront entertainment district?", "Canalside"),
+        ("What local Buffalo flavor is a grape-raspberry drink found almost nowhere else?", "Loganberry"),
+        ("What catastrophic blizzard buried Buffalo under over 100 inches of snow in January 1977?", "Blizzard of 77"),
+        ("What is the name of Buffalo's historic arts neighborhood known for galleries and Victorian homes?", "Allentown"),
+        ("Which US President called Buffalo home before being elected to the White House in 1885?", "Cleveland"),
+    ])
+
+
 
 TRIVIA_CATEGORIES = [
     "science and nature",
