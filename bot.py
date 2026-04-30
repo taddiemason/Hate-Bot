@@ -82,4 +82,12 @@ async def on_command_error(ctx, error):
     await ctx.send(f"❌ Command error: `{error}`")
 
 
+@bot.event
+async def on_error(event: str, *args, **kwargs):
+    import traceback
+    tb = traceback.format_exc()
+    print(f"[ERROR] Unhandled exception in event '{event}':\n{tb}")
+    log_event("ERROR", f"Unhandled exception in event '{event}': {tb.splitlines()[-1]}")
+
+
 bot.run(os.getenv("DISCORD_TOKEN"))
