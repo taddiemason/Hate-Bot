@@ -406,11 +406,11 @@ class RoastCog(commands.Cog):
 
                 eco = shared.load_economy()
                 milestones_given = eco.get("server_milestones_given", [])
-                if count in shared.SERVER_ROAST_shared.MILESTONES and count not in milestones_given:
+                if count in shared.SERVER_ROAST_MILESTONES and count not in milestones_given:
                     milestones_given.append(count)
                     eco["server_milestones_given"] = milestones_given
                     shared.save_economy(eco)
-                    bonus = shared.SERVER_ROAST_shared.MILESTONES[count]
+                    bonus = shared.SERVER_ROAST_MILESTONES[count]
                     for member in message.guild.members:
                         if not member.bot:
                             shared.add_coins(member.id, bonus)
