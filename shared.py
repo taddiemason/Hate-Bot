@@ -799,7 +799,13 @@ def update_target(name: str, usernames: list, ticker: str = None, save: bool = T
 
 
 
-def _get_random_member_name() -> str:
+def _get_random_member_name(guild_id=None) -> str:
+    if guild_id:
+        guild = _bot.get_guild(guild_id)
+        if guild:
+            members = [m for m in guild.members if not m.bot]
+            if members:
+                return random.choice(members).display_name
     for guild in _bot.guilds:
         members = [m for m in guild.members if not m.bot]
         if members:

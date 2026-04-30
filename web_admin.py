@@ -656,8 +656,6 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+not+in+market")
 
         headline = event["headline"]
-        if "{member}" in headline:
-            headline = headline.replace("{member}", _shared._get_random_member_name())
 
         impact_pct = _random.uniform(*event["impact"])
         impacts = {ticker: impact_pct}
@@ -681,7 +679,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         )
         broadcast_channels = _shared._get_guild_channels()
         for gid, ch in broadcast_channels:
-            localized = _shared._t(headline, gid)
+            localized = _shared._t(headline, gid).replace("{member}", _shared._get_random_member_name(gid))
             asyncio.ensure_future(ch.send(
                 f"{arrow} **BREAKING — ${ticker}:** {localized}\n"
                 f"**${old_prices.get(ticker, new_p):.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
