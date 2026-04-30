@@ -1,4 +1,5 @@
 import os
+import asyncio
 import secrets
 import datetime
 import traceback
@@ -429,17 +430,32 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                     f'onclick="return confirm(\'Force-remove ${ticker} from the market? Holders will be liquidated at current price.\')">'
                     f'</form>'
                 )
+            import shared as _shared
+            news_options = "".join(
+                f'<option value="{i}">{e["headline"][:80]}{"…" if len(e["headline"]) > 80 else ""}</option>'
+                for i, e in enumerate(_shared._STOCK_NEWS.get(ticker, []))
+            )
+            trigger_form = (
+                f'<form method="post" action="/api/triggerevent" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:4px">'
+                f'<input type="hidden" name="ticker" value="{ticker}">'
+                f'<select name="event_index" style="max-width:300px;font-size:11px">{news_options}</select>'
+                f'<input type="submit" class="btn" value="Fire" style="background:#7c83fd">'
+                f'</form>'
+            ) if news_options else ""
             rows += f"""<tr>
   <td><b>{ticker}</b></td><td>{info.get('name', ticker)}</td>
   <td>{price:.2f}</td>
   <td class="{si_class}">{si_pct:.1f}%</td>
-  <td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-    <form method="post" action="/api/setprice" style="display:flex;gap:6px;align-items:center">
-      <input type="hidden" name="ticker" value="{ticker}">
-      <input type="number" name="price" value="{price:.2f}" step="0.01" min="0.01" style="width:90px">
-      <input type="submit" class="btn secondary" value="Set">
-    </form>
-    {remove_btn}
+  <td style="display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <form method="post" action="/api/setprice" style="display:flex;gap:6px;align-items:center">
+        <input type="hidden" name="ticker" value="{ticker}">
+        <input type="number" name="price" value="{price:.2f}" step="0.01" min="0.01" style="width:90px">
+        <input type="submit" class="btn secondary" value="Set">
+      </form>
+      {remove_btn}
+    </div>
+    {trigger_form}
   </td>
 </tr>"""
 
@@ -619,6 +635,60 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         save_eco(eco)
         log_event("WARN", f"[Admin] Stock price override: ${ticker} {old_price} → {price:.2f}")
         return aiohttp.web.HTTPFound(f"/stocks?ok=Set+{ticker}+price+to+{price:.2f}")
+
+    async def handle_triggerevent_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        import shared as _shared, random as _random
+        data = await request.post()
+        ticker = data.get("ticker", "").upper()
+        try:
+            event_index = int(data.get("event_index", 0))
+        except ValueError:
+            return aiohttp.web.HTTPFound("/stocks?err=Invalid+event+index")
+        news_list = _shared._STOCK_NEWS.get(ticker, [])
+        if not news_list or event_index >= len(news_list):
+            return aiohttp.web.HTTPFound("/stocks?err=Invalid+event")
+        event = news_list[event_index]
+        eco = load_eco()
+        _shared.init_market(eco)
+        if ticker not in eco.get("market", {}):
+            return aiohttp.web.HTTPFound(f"/stocks?err={ticker}+not+in+market")
+
+        headline = event["headline"]
+        if "{member}" in headline:
+            headline = headline.replace("{member}", _shared._get_random_member_name())
+
+        impact_pct = _random.uniform(*event["impact"])
+        impacts = {ticker: impact_pct}
+        for linked_ticker, linked_range in event.get("linked", []):
+            impacts[linked_ticker] = _random.uniform(*linked_range)
+
+        old_prices = {}
+        for t, pct in impacts.items():
+            if t in eco["market"]:
+                old_prices[t] = eco["market"][t]["price"]
+                new_price = old_prices[t] * (1 + pct / 100)
+                _shared._apply_price_event(eco["market"][t], new_price)
+        save_eco(eco)
+
+        arrow = "📈" if impact_pct > 0 else "📉"
+        new_p = eco["market"][ticker]["price"]
+        analyst = _random.choice(_shared._ANALYST_QUOTES)
+        linked_str = "".join(
+            f" | **${t}** → **${eco['market'][t]['price']:.2f}** ({pct:+.1f}%)"
+            for t, pct in impacts.items() if t != ticker
+        )
+        broadcast_channels = _shared._get_guild_channels()
+        for gid, ch in broadcast_channels:
+            localized = _shared._t(headline, gid)
+            asyncio.ensure_future(ch.send(
+                f"{arrow} **BREAKING — ${ticker}:** {localized}\n"
+                f"**${old_prices.get(ticker, new_p):.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
+                f"*{analyst}*"
+            ))
+        log_event("WARN", f"[Admin] Manual event fired: ${ticker} — {headline[:60]}")
+        return aiohttp.web.HTTPFound(f"/stocks?ok=Event+fired+for+{ticker}")
 
     # ── User Detail ──────────────────────────────────────────────────────────
 
@@ -843,6 +913,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_post("/api/resetshop", handle_resetshop_api)
     app.router.add_get("/stocks", handle_stocks)
     app.router.add_post("/api/setprice", handle_setprice_api)
+    app.router.add_post("/api/triggerevent", handle_triggerevent_api)
     app.router.add_post("/api/deliststock", handle_deliststock_api)
     app.router.add_post("/api/removestock", handle_removestock_api)
     app.router.add_get("/user/{uid}", handle_user)
