@@ -91,6 +91,27 @@ def _check_auth(request: aiohttp.web.Request) -> bool:
     return bool(token and _sessions.get(token))
 
 
+def _svg_sparkline(prices, width=100, height=28):
+    """Generate an inline SVG sparkline from a list of prices."""
+    if len(prices) < 2:
+        return '<span class="muted">—</span>'
+    mn, mx = min(prices), max(prices)
+    color = "#3fb950" if prices[-1] >= prices[0] else "#f85149"
+    n = len(prices)
+    if mx == mn:
+        pts = " ".join(f"{int(i / (n - 1) * width)},{height // 2}" for i in range(n))
+    else:
+        pts = " ".join(
+            f"{int(i / (n - 1) * width)},{int((1 - (p - mn) / (mx - mn)) * (height - 4) + 2)}"
+            for i, p in enumerate(prices)
+        )
+    return (
+        f'<svg width="{width}" height="{height}" style="vertical-align:middle;display:block">'
+        f'<polyline points="{pts}" fill="none" stroke="{color}" stroke-width="1.5" stroke-linejoin="round"/>'
+        f'</svg>'
+    )
+
+
 def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot, tts_queue=None):
 
     def _user_name(uid: str) -> str:
@@ -411,11 +432,10 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         for ticker, info in market_stocks.items():
             mdata = eco.get("market", {}).get(ticker, {})
             price = mdata.get("price", info.get("base_price", 0))
-            outstanding = info.get("outstanding", 1000)
+            outstanding = info.get("shares_outstanding", 1000)
             total_shorted = sum(
-                pos.get("shares", 0)
-                for uid in eco.get("shorts", {})
-                for pos in eco["shorts"][uid].get(ticker, [])
+                pos.get(ticker, {}).get("shares", 0)
+                for pos in eco.get("short_positions", {}).values()
             )
             si_pct = (total_shorted / outstanding * 100) if outstanding else 0
             si_class = "red" if si_pct > 20 else ("yellow" if si_pct > 10 else "green")
@@ -446,10 +466,18 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 f'<input type="submit" class="btn" value="Fire" style="background:#7c83fd">'
                 f'</form>'
             ) if news_options else ""
+            price_history = mdata.get("price_history", [price])
+            sparkline_svg = _svg_sparkline(price_history)
+            ath = mdata.get("all_time_high", price)
+            atl = mdata.get("all_time_low", price)
+            chg_1 = price - price_history[-2] if len(price_history) >= 2 else 0
+            chg_cls = "green" if chg_1 >= 0 else "red"
+            chg_str = f'<span class="{chg_cls}">{chg_1:+.2f}</span>'
             rows += f"""<tr>
   <td><b>{ticker}</b></td><td>{info.get('name', ticker)}</td>
-  <td>{price:.2f}</td>
+  <td>{price:.2f} {chg_str}</td>
   <td class="{si_class}">{si_pct:.1f}%</td>
+  <td style="min-width:110px">{sparkline_svg}<span class="muted" style="font-size:.75em">H:{ath:.2f} L:{atl:.2f}</span></td>
   <td style="display:flex;flex-direction:column;gap:6px">
     <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <form method="post" action="/api/setprice" style="display:flex;gap:6px;align-items:center">
@@ -542,7 +570,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
 
         body = f"""{msg}
 <table>
-  <thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Short Interest</th><th>Override Price</th></tr></thead>
+  <thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Short Interest</th><th>Trend</th><th>Override Price</th></tr></thead>
   <tbody>{rows}</tbody>
 </table>
 {target_section}"""
@@ -721,20 +749,19 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             )
 
         # Shorts
-        shorts = eco.get("shorts", {}).get(uid, {})
+        shorts = eco.get("short_positions", {}).get(uid, {})
         short_rows = ""
-        for ticker, positions in shorts.items():
-            for pos in positions:
-                cur_price = eco.get("market", {}).get(ticker, {}).get(
-                    "price", market_stocks.get(ticker, {}).get("base_price", 0)
-                )
-                pnl = (pos["entry_price"] - cur_price) * pos["shares"]
-                cls = "green" if pnl >= 0 else "red"
-                short_rows += (
-                    f"<tr><td>{ticker}</td><td>{pos['shares']}</td>"
-                    f"<td>{pos['entry_price']:.2f}</td><td>{cur_price:.2f}</td>"
-                    f"<td class='{cls}'>{pnl:+.2f}</td></tr>"
-                )
+        for ticker, pos in shorts.items():
+            cur_price = eco.get("market", {}).get(ticker, {}).get(
+                "price", market_stocks.get(ticker, {}).get("base_price", 0)
+            )
+            pnl = (pos["avg_price"] - cur_price) * pos["shares"]
+            cls = "green" if pnl >= 0 else "red"
+            short_rows += (
+                f"<tr><td>{ticker}</td><td>{pos['shares']}</td>"
+                f"<td>{pos['avg_price']:.2f}</td><td>{cur_price:.2f}</td>"
+                f"<td class='{cls}'>{pnl:+.2f}</td></tr>"
+            )
 
         inventory = eco.get("inventory", {}).get(uid, [])
         inv_html = (
