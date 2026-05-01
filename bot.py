@@ -20,6 +20,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 shared.set_bot(bot)
 
 _admin_server_started = False
+_tts_worker_started = False
+
+_RESTART_DELAY = 30  # seconds between crash restarts
 
 
 async def _start_admin_server():
@@ -44,7 +47,7 @@ async def _start_admin_server():
 
 @bot.event
 async def on_ready():
-    global _admin_server_started
+    global _admin_server_started, _tts_worker_started
     init_db()
     shared.set_bot(bot)
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -60,14 +63,20 @@ async def on_ready():
         if ext not in bot.extensions:
             await bot.load_extension(ext)
 
-    asyncio.ensure_future(shared.tts_worker())
+    if not _tts_worker_started:
+        asyncio.ensure_future(shared.tts_worker())
+        _tts_worker_started = True
     if not _admin_server_started:
         asyncio.ensure_future(_start_admin_server())
 
 
 @bot.event
+async def on_resumed():
+    log_event("INFO", "Bot reconnected to Discord (session resumed)")
+
+
+@bot.event
 async def on_disconnect():
-    print("[DEBUG] Bot disconnected from Discord")
     log_event("WARN", "Bot disconnected from Discord")
 
 
@@ -90,4 +99,22 @@ async def on_error(event: str, *args, **kwargs):
     log_event("ERROR", f"Unhandled exception in event '{event}': {tb.splitlines()[-1]}")
 
 
-bot.run(os.getenv("DISCORD_TOKEN"))
+async def main():
+    token = os.getenv("DISCORD_TOKEN")
+    while True:
+        try:
+            async with bot:
+                await bot.start(token, reconnect=True)
+        except discord.LoginFailure:
+            log_event("ERROR", "Invalid Discord token — cannot login, shutting down")
+            break
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            log_event("ERROR", f"Bot crashed: {e} — restarting in {_RESTART_DELAY}s\n{tb.splitlines()[-1]}")
+            await asyncio.sleep(_RESTART_DELAY)
+
+
+asyncio.run(main())
