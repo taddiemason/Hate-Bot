@@ -383,7 +383,7 @@ class StocksCog(commands.Cog):
             if triggered:
                 ch = self.bot.get_channel(alert["channel_id"])
                 if ch:
-                    asyncio.ensure_future(ch.send(
+                    asyncio.create_task(ch.send(
                         f"🔔 <@{alert['uid']}> **${t}** hit your alert target of **${alert['target']:.2f}** "
                         f"(now **${current:.2f}**)"
                     ))
@@ -1171,17 +1171,17 @@ class StocksCog(commands.Cog):
                 "**Shorting** _(bet a stock goes down)_\n"
                 "`!short <TICKER> <shares>` — Borrow and sell shares; profit if price drops.\n"
                 "`!cover <TICKER> <shares>` — Buy back shares to close your short.\n"
-                "⚠️ Shorts require 150% of position value as margin. If margin drops below 110% you get margin-called.\n\n"
+                "⚠️ Shorts require 125% of position value as collateral. If collateral loses 80% you get margin-called.\n\n"
                 "**Limit Orders**\n"
                 "`!limitorder <buy|sell|short|cover> <TICKER> <shares> <price>` — Execute automatically when price hits target.\n"
                 "`!orders` — View your pending limit orders.\n"
-                "`!cancelorder <id>` — Cancel a limit order.\n\n"
-                "_Page 1/3 — use `!stockhelp2` and `!stockhelp3` for options & futures_"
+                "`!cancellimit <id>` — Cancel a limit order.\n\n"
+                "_Page 1/3 — scroll down for options & futures_"
             ),
             (
                 "📈 **Stock Market Guide — Options**\n\n"
                 "Options give you the **right** (not obligation) to buy/sell at a set price.\n\n"
-                "**`!buyoption <TICKER> <call|put> <strike> <days>`**\n"
+                "**`!buyoption <call|put> <TICKER> <contracts> <strike> [days=7]`**\n"
                 "• **Call** — profits if price rises above strike before expiry.\n"
                 "• **Put** — profits if price falls below strike before expiry.\n"
                 "• Premium is calculated from volatility, time, and distance to strike.\n\n"
@@ -1205,8 +1205,8 @@ class StocksCog(commands.Cog):
                 "**`!myfutures`** — View your open futures positions.\n\n"
                 "**Risk warning**\n"
                 "• Leverage amplifies both gains **and** losses.\n"
-                "• If your margin drops below 5% of position value you get **margin called** — position force-closed at a loss.\n"
-                "• Futures settle automatically after 30 days.\n\n"
+                "• Your margin deposit is at risk — losses are deducted from it at settlement.\n"
+                "• Futures settle automatically after 7 days.\n\n"
                 "**Dividends** — `$RUST`, `$BIGMAC`, `$TORTA`, `$WENDY` pay weekly dividends to shareholders.\n\n"
                 "_Page 3/3_"
             ),

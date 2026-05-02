@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
 import shared
+from web_admin import log_event
 from shared import (
     load_economy, save_economy, add_coins, spend_coins, get_guild_target,
     is_donovan, record_trivia_win, get_portfolio_value, init_market, init_derivatives,
@@ -406,7 +407,7 @@ class GamesCog(commands.Cog):
                 await ctx.send("🏆 **SPORTS TRIVIA OVER!** Nobody scored a single point. Embarrassing.")
 
         except Exception as e:
-            print(f"[ERROR] Sports trivia crashed: {e}")
+            log_event("ERROR", f"Sports trivia crashed in #{getattr(ctx.channel, 'name', '?')}: {e}")
             gid = ctx.guild.id if ctx.guild else None
             tn = get_guild_target(gid)["name"]
             await ctx.send(f"Sports trivia crashed. Blame {tn}.")
@@ -495,7 +496,7 @@ class GamesCog(commands.Cog):
                 await ctx.send("🦬 **BUFFALO TRIVIA OVER!** Nobody scored. You all failed this city.")
 
         except Exception as e:
-            print(f"[ERROR] Buffalo trivia crashed: {e}")
+            log_event("ERROR", f"Buffalo trivia crashed in #{getattr(ctx.channel, 'name', '?')}: {e}")
             await ctx.send("Buffalo trivia crashed. Fitting, really.")
         finally:
             shared.sports_trivia_active[channel_id] = False
@@ -596,7 +597,7 @@ class GamesCog(commands.Cog):
                 await ctx.send(f"🏆 **GAME OVER**\nNobody scored a single point. {tn} would fit right in.")
 
         except Exception as e:
-            print(f"[ERROR] Guess game failed: {e}")
+            log_event("ERROR", f"Guess game crashed in #{getattr(ctx.channel, 'name', '?')}: {e}")
             await ctx.send(f"The game crashed. Blame {tn}.")
         finally:
             shared.guess_game_active = False
@@ -659,7 +660,7 @@ class GamesCog(commands.Cog):
                     f"{tn} walks free today. Don't worry, they'll embarrass themselves again soon enough."
                 )
         except Exception as e:
-            print(f"[ERROR] Trial failed: {e}")
+            log_event("ERROR", f"Trial crashed in #{getattr(ctx.channel, 'name', '?')}: {e}")
             await ctx.send(f"The trial collapsed due to {tn}'s overwhelming incompetence. Court dismissed.")
         finally:
             shared.trial_active = False
