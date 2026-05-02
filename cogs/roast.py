@@ -386,8 +386,9 @@ class RoastCog(commands.Cog):
                     sotu = await shared.ask_openai(shared._t("Deliver a presidential State of the Union address formally assessing the ongoing Donovan situation. Address the nation, assess the threat to morale, outline the administration's response plan, and close with hollow optimism. 5-7 sentences.", gid), gid)
                     await message.channel.send(f"🎙️ **STATE OF THE UNION — THE {tgt_name.upper()} SITUATION:**\n{sotu}")
 
-                coin_reward = 20 if shared.is_double_coin_day() else 10
-                if shared.is_double_coin_day():
+                double_coins = shared.is_double_coin_day()
+                coin_reward = 20 if double_coins else 10
+                if double_coins:
                     await message.channel.send(f"💰 **2x Roast Coins** — Fuck {tgt_name} Friday/Weekend bonus active!")
                 shared.add_coins(message.author.id, coin_reward)
                 update_stocks_on_roast(message.author.id)
