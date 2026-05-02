@@ -249,7 +249,7 @@ class EconomyCog(commands.Cog):
         for k in rotation:
             if k not in shared.SHOP_ITEMS:
                 continue
-            desc_tmpl = _shared.SHOP_ITEMS_TMPL.get(k, {}).get("description", shared.SHOP_ITEMS[k]["description"])
+            desc_tmpl = shared._SHOP_ITEMS_TMPL.get(k, {}).get("description", shared.SHOP_ITEMS[k]["description"])
             desc = _t(desc_tmpl, gid)
             lines.append(f"**{shared.SHOP_ITEMS[k]['name']}** (`{k}`) — {shared.SHOP_ITEMS[k]['cost']} coins\n_{desc}_")
         await ctx.send(
