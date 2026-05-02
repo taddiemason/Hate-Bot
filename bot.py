@@ -66,10 +66,10 @@ async def on_ready():
             await bot.load_extension(ext)
 
     if not _tts_worker_started:
-        asyncio.ensure_future(shared.tts_worker())
+        asyncio.create_task(shared.tts_worker())
         _tts_worker_started = True
     if not _admin_server_started:
-        asyncio.ensure_future(_start_admin_server())
+        asyncio.create_task(_start_admin_server())
 
 
 @bot.event
