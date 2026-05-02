@@ -136,7 +136,6 @@ class RoastCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        print(f"[DEBUG] Any message received: {message.author} - {message.content[:50]}")
         if message.author == self.bot.user:
             return
 
@@ -188,7 +187,7 @@ class RoastCog(commands.Cog):
         # Guess the roast answer check
         if shared.guessroast_active and not message.author.bot:
             if tgt_name.lower() in message.content.lower():
-                globals()["shared.guessroast_active"] = False
+                shared.guessroast_active = False
                 shared.add_coins(message.author.id, 30)
                 await message.channel.send(f"✅ {message.author.mention} got it! It was **{tgt_name}** (obviously). **+30 coins!**")
 

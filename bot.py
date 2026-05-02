@@ -60,7 +60,9 @@ async def on_ready():
         log_event("INFO", f"Target restored: {shared.TARGET_NAME} / {shared.TARGET_USERNAMES} / ${shared.TARGET_STOCK_TICKER}")
 
     for ext in ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.admin"):
-        if ext not in bot.extensions:
+        if ext in bot.extensions:
+            await bot.reload_extension(ext)
+        else:
             await bot.load_extension(ext)
 
     if not _tts_worker_started:

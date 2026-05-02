@@ -7,7 +7,7 @@ from discord.ext import commands, tasks
 import shared
 from shared import (
     load_economy, save_economy, get_guild_target, get_guild_config,
-    set_guild_config, update_target, is_donovan, _t,
+    set_guild_config, set_guild_target, update_target, is_donovan, _t,
     _post_hate_vote, _tally_hate_vote,
 )
 from web_admin import log_event
