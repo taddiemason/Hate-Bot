@@ -436,9 +436,9 @@ class GamesCog(commands.Cog):
             used_sports_topics = []
             used_sports_answers = []
             used_city_topics = []
-            city_round = random.randint(1, 5)
+            city_rounds = set(random.sample(range(1, 6), 2))
             for round_num in range(1, 6):
-                if round_num == city_round:
+                if round_num in city_rounds:
                     question, answer = await generate_buffalo_ny_question(used_city_topics)
                     used_city_topics.append(answer)
                     round_label = f"**Round {round_num}/5 — 🌆 Buffalo City Trivia**"
