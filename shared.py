@@ -1530,6 +1530,7 @@ async def generate_buffalo_question(used_topics=None, used_answers=None):
                             "- 13 Seconds: Josh Allen (Bills) vs Patrick Mahomes (Chiefs); 2022 AFC Divisional round; Chiefs won\n"
                             "- No Goal: Brett Hull scored the Cup-winning goal in 1999 Stanley Cup Finals with his skate in the crease; the rule was not enforced; Stars beat Sabres\n"
                             "- Four Super Bowls: Bills lost all four (XXV, XXVI, XXVII, XXVIII); QB was Jim Kelly each time\n"
+                            "- Buffalo Sabres arena naming history: opened in 1996 as Marine Midland Arena; renamed HSBC Arena in 1999; renamed First Niagara Center in 2011; renamed KeyBank Center in 2016 (current name) — ORIGINAL name is Marine Midland Arena\n"
                             "STRICT RULES:\n"
                             "- Only generate questions whose answers you are 100% certain are correct — if unsure, pick a different angle\n"
                             "- Questions should range from easy (iconic moments) to hard (specific stats or dates)\n"
