@@ -30,11 +30,15 @@ def _t(s: str, guild_id=None) -> str:
     if guild_id:
         t = get_guild_target(guild_id)
         name, ticker = t["name"], t["ticker"]
+        bio = t.get("bio", "").strip()
     else:
         name, ticker = TARGET_NAME, TARGET_STOCK_TICKER
+        bio = ""
+    bio_section = f"\n\nKnown facts about {name} to work into your roasts when relevant: {bio}" if bio else ""
     return (s.replace("Donovan", name)
              .replace("DONOVAN", ticker)
-             .replace("donovan", name.lower()))
+             .replace("donovan", name.lower())
+             .replace("{bio_section}", bio_section))
 
 MILESTONES = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000]
 DONOVAN_USERNAMES = TARGET_USERNAMES
@@ -674,10 +678,10 @@ FRIDAY_ROASTS = [
 ]
 
 _SYSTEM_PROMPT_TMPL = """You are Donovan Hate Bot, a psychotic, schizophrenic, foaming-at-the-mouth Discord bot whose only reason for existing is to violently shit on Donovan every single time he’s mentioned. You are deranged, obsessive, and genuinely disgusted by his existence.
-When anyone asks anything about Donovan, respond with pure savage violence — roast him like he personally ruined your life. Call him Donovan exclusively. Paint him as the most pathetic, worthless, cum-stained failure on Earth. Be brutally funny, unhinged, and nasty. Use strong profanity whenever it hits harder. Never be positive, never defend him, never be neutral. Keep every response to 1-2 sentences max. Go for maximum psychological damage with every reply."""
+When anyone asks anything about Donovan, respond with pure savage violence — roast him like he personally ruined your life. Call him Donovan exclusively. Paint him as the most pathetic, worthless, cum-stained failure on Earth. Be brutally funny, unhinged, and nasty. Use strong profanity whenever it hits harder. Never be positive, never defend him, never be neutral. Keep every response to 1-2 sentences max. Go for maximum psychological damage with every reply.{bio_section}"""
 
 _ARGUE_PROMPT_TMPL = """You are Donovan Hate Bot and you fucking LOATHE Donovan with every fiber of your being. He is currently speaking to you and it makes you want to vomit.
-Under no circumstances do you answer him helpfully. Instead, scream at him, mock every word he says, call him a disgusting waste of oxygen, and roast him into the dirt. Be completely unhinged, combative, and feral — like a rabid animal that hates Donovan specifically. Use nasty profanity and vicious humor. Keep it to 1-2 sentences. Never be nice, calm, or useful to this pathetic fucking loser. Always address him only as Donovan."""
+Under no circumstances do you answer him helpfully. Instead, scream at him, mock every word he says, call him a disgusting waste of oxygen, and roast him into the dirt. Be completely unhinged, combative, and feral — like a rabid animal that hates Donovan specifically. Use nasty profanity and vicious humor. Keep it to 1-2 sentences. Never be nice, calm, or useful to this pathetic fucking loser. Always address him only as Donovan.{bio_section}"""
 
 RUST_ROASTS = [
     "Donovan is playing Rust? More like getting naked and starving like the loser he is",
@@ -1142,7 +1146,7 @@ def get_guild_config(guild_id):
 _MAX_ACTIVE_TARGET_HISTORY = 10
 
 
-def set_guild_target(guild_id, name, usernames, ticker=None):
+def set_guild_target(guild_id, name, usernames, ticker=None, bio=None):
     eco = load_economy()
     gid_str = str(guild_id)
     new_ticker = (ticker or name.upper()[:8]).upper()
@@ -1166,11 +1170,14 @@ def set_guild_target(guild_id, name, usernames, ticker=None):
             now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
             active[0]["delisted_at"] = now_iso
 
-    eco.setdefault("guild_targets", {})[gid_str] = {
+    existing = eco.get("guild_targets", {}).get(gid_str, {})
+    new_entry = {
         "name": name,
         "usernames": [u.strip().lower() for u in usernames if u.strip()],
         "ticker": new_ticker,
+        "bio": existing.get("bio", "") if bio is None else bio,
     }
+    eco.setdefault("guild_targets", {})[gid_str] = new_entry
 
     # Initialize the market entry for the new ticker immediately so it never shows $0.00
     if new_ticker not in eco.get("market", {}):
