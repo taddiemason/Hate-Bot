@@ -16,7 +16,14 @@ intents.message_content = True
 intents.members = True
 intents.presences = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+class HateBot(commands.Bot):
+    async def setup_hook(self):
+        # Load extensions once at startup; reloading on every READY can cause instability.
+        for ext in ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.admin"):
+            await self.load_extension(ext)
+
+
+bot = HateBot(command_prefix="!", intents=intents)
 shared.set_bot(bot)
 
 _admin_server_started = False
@@ -59,12 +66,6 @@ async def on_ready():
         shared.update_target(saved["name"], saved.get("usernames", []), saved.get("ticker"), save=False)
         log_event("INFO", f"Target restored: {shared.TARGET_NAME} / {shared.TARGET_USERNAMES} / ${shared.TARGET_STOCK_TICKER}")
 
-    for ext in ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.admin"):
-        if ext in bot.extensions:
-            await bot.reload_extension(ext)
-        else:
-            await bot.load_extension(ext)
-
     if not _tts_worker_started:
         asyncio.create_task(shared.tts_worker())
         _tts_worker_started = True
@@ -79,7 +80,8 @@ async def on_resumed():
 
 @bot.event
 async def on_disconnect():
-    log_event("WARN", "Bot disconnected from Discord")
+    # Discord gateway disconnects can be transient; reconnect usually happens automatically.
+    log_event("WARN", "Bot disconnected from Discord (waiting for automatic reconnect)")
 
 
 @bot.event
@@ -103,6 +105,10 @@ async def on_error(event: str, *args, **kwargs):
 
 async def main():
     token = os.getenv("DISCORD_TOKEN")
+    if not token:
+        log_event("ERROR", "DISCORD_TOKEN is not set; shutting down")
+        return
+
     while True:
         try:
             async with bot:
