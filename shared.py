@@ -811,49 +811,6 @@ def _get_random_member_name(guild_id=None) -> str:
     return "an anonymous insider"
 
 
-def get_stocks():
-    eco = load_economy()
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    default = {
-        TARGET_NAME.lower(): {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now},
-        "users": {},
-    }
-    stocks = eco.get("stocks", default)
-    tkey = TARGET_NAME.lower()
-    if tkey not in stocks:
-        # Migrate old target key to new target name
-        old_key = next((k for k in stocks if k != "users"), None)
-        if old_key:
-            stocks[tkey] = stocks.pop(old_key)
-        else:
-            stocks[tkey] = {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now}
-        eco["stocks"] = stocks
-        save_economy(eco)
-    return stocks
-
-
-def save_stocks(stocks):
-    eco = load_economy()
-    eco["stocks"] = stocks
-    save_economy(eco)
-
-
-def get_display_prices(stocks):
-    """Apply time-based drift without persisting — target recovers slowly, users decay slowly."""
-    now = datetime.datetime.now(datetime.timezone.utc)
-
-    don = stocks.get(TARGET_NAME.lower(), {"price": DONOVAN_STOCK_BASE, "last_updated": now.isoformat()})
-    hours = (now - datetime.datetime.fromisoformat(don["last_updated"])).total_seconds() / 3600
-    don_price = min(don["price"] + hours * 0.25, DONOVAN_STOCK_BASE)
-
-    user_prices = {}
-    for uid, data in stocks.get("users", {}).items():
-        hours = (now - datetime.datetime.fromisoformat(data["last_updated"])).total_seconds() / 3600
-        user_prices[uid] = max(data["price"] - hours * 0.1, 1.0)
-
-    return round(don_price, 2), {k: round(v, 2) for k, v in user_prices.items()}
-
-
 def update_stocks_on_roast(user_id):
     eco = load_economy()
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -1305,11 +1262,6 @@ def consume_upgrade(user_id, upgrade):
     return False
 
 
-def has_upgrade(user_id, upgrade):
-    eco = load_economy()
-    return upgrade in eco.get("pending_upgrades", {}).get(str(user_id), [])
-
-
 def claim_bounties(user_id):
     eco = load_economy()
     active = [b for b in eco["bounties"] if b["active"]]
@@ -1527,28 +1479,6 @@ async def generate_sports_question(sport, used_topics=None):
         print(f"[ERROR] Sports trivia generation failed: {e}")
     return random.choice(SPORTS_TRIVIA_FALLBACKS)
 
-
-BUFFALO_TRIVIA_TOPICS = [
-    "Buffalo Bills history (1960s–present)",
-    "Buffalo Sabres history (1970–present)",
-    "Jim Kelly and the K-Gun offense",
-    "The four consecutive Super Bowl appearances (1991–1994)",
-    "Wide Right — Scott Norwood's missed field goal in Super Bowl XXV",
-    "The Music City Miracle lateral play (2000 AFC Wild Card)",
-    "13 Seconds — Josh Allen vs Patrick Mahomes 2022 divisional round",
-    "Dominik Hasek and the Buffalo Sabres dominance in the 1990s",
-    "The 1999 Stanley Cup Finals and the infamous 'No Goal' call",
-    "Pat LaFontaine and his time with the Sabres",
-    "Thurman Thomas, Andre Reed, Bruce Smith — Bills legends",
-    "Josh Allen era Bills (2018–present)",
-    "Stefon Diggs trade and impact on the Bills",
-    "Buffalo Bills draft history and notable picks",
-    "Buffalo Sabres draft history — Gilbert Perreault, Rick Martin",
-    "The Buffalo Bills Mafia and fan culture",
-    "Ralph Wilson Stadium / Highmark Stadium history",
-    "KeyBank Center / HSBC Arena history",
-    "Buffalo sports heartbreaks and iconic moments",
-]
 
 async def generate_buffalo_question(used_topics=None):
     import re
