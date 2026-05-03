@@ -865,7 +865,7 @@ def init_market(eco):
         }
     else:
         for ticker, info in all_stocks.items():
-            if ticker not in eco["market"] or "price" not in eco["market"][ticker]:
+            if ticker not in eco["market"] or "price" not in eco["market"][ticker] or eco["market"][ticker].get("price", 0) <= 0:
                 eco["market"][ticker] = {
                     "price": info["base_price"],
                     "prev_price": info["base_price"],
