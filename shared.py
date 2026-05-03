@@ -157,7 +157,7 @@ MARKET_STOCKS = {
 
 _TARGET_STOCK_DEFAULTS = {
     "shares_outstanding": 5000, "shortable": True, "volatility": 3.0,
-    "mean_reversion": 0.03, "daily_volume": 1500, "base_price": 50.0,
+    "mean_reversion": 0.03, "daily_volume": 1500, "base_price": 100.0,
 }
 
 _ANALYST_QUOTES = [
@@ -1171,6 +1171,22 @@ def set_guild_target(guild_id, name, usernames, ticker=None):
         "usernames": [u.strip().lower() for u in usernames if u.strip()],
         "ticker": new_ticker,
     }
+
+    # Initialize the market entry for the new ticker immediately so it never shows $0.00
+    if new_ticker not in eco.get("market", {}):
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        bp = _TARGET_STOCK_DEFAULTS["base_price"]
+        eco.setdefault("market", {})[new_ticker] = {
+            "price": bp,
+            "prev_price": bp,
+            "dynamic_base": bp,
+            "all_time_high": bp,
+            "all_time_low": bp,
+            "last_updated": now_iso,
+            "volume_today": 0,
+            "price_history": [bp],
+        }
+
     save_economy(eco)
 
 
