@@ -1503,12 +1503,15 @@ BUFFALO_TRIVIA_TOPICS = [
 ]
 
 
-async def generate_buffalo_question(used_topics=None):
+async def generate_buffalo_question(used_topics=None, used_answers=None):
     import re
     available = [t for t in BUFFALO_TRIVIA_TOPICS if t not in (used_topics or [])]
     topic = random.choice(available) if available else random.choice(BUFFALO_TRIVIA_TOPICS)
-    avoid = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
-             if used_topics else "")
+    avoid_topics = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
+                    if used_topics else "")
+    avoid_answers = (f"\nDo NOT generate a question whose answer is any of these already-used answers: {', '.join(used_answers)}."
+                     if used_answers else "")
+    avoid = avoid_topics + avoid_answers
     try:
         response = await groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",

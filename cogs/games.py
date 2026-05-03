@@ -434,6 +434,7 @@ class GamesCog(commands.Cog):
             await asyncio.sleep(2)
 
             used_sports_topics = []
+            used_sports_answers = []
             used_city_topics = []
             city_round = random.randint(1, 5)
             for round_num in range(1, 6):
@@ -442,8 +443,9 @@ class GamesCog(commands.Cog):
                     used_city_topics.append(answer)
                     round_label = f"**Round {round_num}/5 — 🌆 Buffalo City Trivia**"
                 else:
-                    question, answer, topic = await generate_buffalo_question(used_sports_topics)
+                    question, answer, topic = await generate_buffalo_question(used_sports_topics, used_sports_answers)
                     used_sports_topics.append(topic)
+                    used_sports_answers.append(answer)
                     round_label = f"**Round {round_num}/5**"
 
                 await ctx.send(f"{round_label}\n\n_{question}_\n\n⏱️ 30 seconds!")
