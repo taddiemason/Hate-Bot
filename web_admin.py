@@ -214,6 +214,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             t_name = html.escape(tgt.get("name", ""))
             t_users = html.escape(", ".join(tgt.get("usernames", [])))
             t_ticker = html.escape(tgt.get("ticker", ""))
+            t_bio = html.escape(tgt.get("bio", ""))
             target_forms += f"""
 <div class="panel">
   <h2 style="margin-top:0">{html.escape(guild.name)} <span class="muted" style="font-size:.8em">({guild.id})</span></h2>
@@ -227,6 +228,14 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
       <label>Ticker</label>
       <input type="text" name="ticker" value="{t_ticker}" placeholder="DONOVAN" style="width:120px">
       <input type="submit" class="btn" value="Save Target">
+    </div>
+  </form>
+  <form method="post" action="/api/settargetbio" style="margin-top:10px">
+    <input type="hidden" name="guild_id" value="{guild.id}">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="font-weight:600">Roast Bio <span class="muted" style="font-weight:normal;font-size:.85em">— facts the bot weaves into insults (hobbies, habits, running jokes, etc.)</span></label>
+      <textarea name="bio" rows="3" placeholder="e.g. obsessed with fantasy football, never finishes projects, calls himself an entrepreneur" style="width:100%;max-width:700px;font-family:monospace;font-size:.9em">{t_bio}</textarea>
+      <div><input type="submit" class="btn secondary" value="Save Bio"></div>
     </div>
   </form>
 </div>"""
@@ -275,14 +284,33 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         if not ticker:
             ticker = name.upper()[:8]
         eco = load_eco()
+        existing = eco.get("guild_targets", {}).get(guild_id, {})
         eco.setdefault("guild_targets", {})[guild_id] = {
             "name": name,
             "usernames": usernames,
             "ticker": ticker,
+            "bio": existing.get("bio", ""),
         }
         save_eco(eco)
         log_event("WARN", f"[Admin] Target set for guild {guild_id}: {name} / {usernames} / ${ticker}")
         return aiohttp.web.HTTPFound("/?ok=Target+saved")
+
+    async def handle_settargetbio_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        data = await request.post()
+        guild_id = data.get("guild_id", "").strip()
+        bio = data.get("bio", "").strip()
+        if not guild_id:
+            return aiohttp.web.HTTPFound("/?err=Missing+guild+id")
+        eco = load_eco()
+        target = eco.get("guild_targets", {}).get(guild_id)
+        if not target:
+            return aiohttp.web.HTTPFound("/?err=No+target+set+for+that+server")
+        target["bio"] = bio
+        save_eco(eco)
+        log_event("INFO", f"[Admin] Bio updated for guild {guild_id}: {bio[:80]}")
+        return aiohttp.web.HTTPFound("/?ok=Bio+saved")
 
     # ── Economy ──────────────────────────────────────────────────────────────
 
@@ -995,6 +1023,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_get("/logout", handle_logout)
     app.router.add_get("/", handle_dashboard)
     app.router.add_post("/api/settarget", handle_settarget_api)
+    app.router.add_post("/api/settargetbio", handle_settargetbio_api)
     app.router.add_get("/economy", handle_economy)
     app.router.add_post("/api/coins", handle_coins_api)
     app.router.add_get("/shop", handle_shop)
