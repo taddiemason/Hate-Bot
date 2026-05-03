@@ -8,7 +8,7 @@ import shared
 from shared import (
     load_economy, save_economy, add_coins, spend_coins, get_guild_target,
     get_guild_config, is_donovan, is_double_coin_day, get_daily_reward,
-    get_shop_rotation, consume_upgrade, has_upgrade, claim_bounties,
+    get_shop_rotation, consume_upgrade, claim_bounties,
     is_insurance_active, record_trivia_win, init_market, init_derivatives,
     get_portfolio_value, _t, resolve_member_name,
 )

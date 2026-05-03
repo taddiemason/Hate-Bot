@@ -811,49 +811,6 @@ def _get_random_member_name(guild_id=None) -> str:
     return "an anonymous insider"
 
 
-def get_stocks():
-    eco = load_economy()
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    default = {
-        TARGET_NAME.lower(): {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now},
-        "users": {},
-    }
-    stocks = eco.get("stocks", default)
-    tkey = TARGET_NAME.lower()
-    if tkey not in stocks:
-        # Migrate old target key to new target name
-        old_key = next((k for k in stocks if k != "users"), None)
-        if old_key:
-            stocks[tkey] = stocks.pop(old_key)
-        else:
-            stocks[tkey] = {"price": DONOVAN_STOCK_BASE, "prev_price": DONOVAN_STOCK_BASE, "last_updated": now}
-        eco["stocks"] = stocks
-        save_economy(eco)
-    return stocks
-
-
-def save_stocks(stocks):
-    eco = load_economy()
-    eco["stocks"] = stocks
-    save_economy(eco)
-
-
-def get_display_prices(stocks):
-    """Apply time-based drift without persisting — target recovers slowly, users decay slowly."""
-    now = datetime.datetime.now(datetime.timezone.utc)
-
-    don = stocks.get(TARGET_NAME.lower(), {"price": DONOVAN_STOCK_BASE, "last_updated": now.isoformat()})
-    hours = (now - datetime.datetime.fromisoformat(don["last_updated"])).total_seconds() / 3600
-    don_price = min(don["price"] + hours * 0.25, DONOVAN_STOCK_BASE)
-
-    user_prices = {}
-    for uid, data in stocks.get("users", {}).items():
-        hours = (now - datetime.datetime.fromisoformat(data["last_updated"])).total_seconds() / 3600
-        user_prices[uid] = max(data["price"] - hours * 0.1, 1.0)
-
-    return round(don_price, 2), {k: round(v, 2) for k, v in user_prices.items()}
-
-
 def update_stocks_on_roast(user_id):
     eco = load_economy()
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -1305,11 +1262,6 @@ def consume_upgrade(user_id, upgrade):
     return False
 
 
-def has_upgrade(user_id, upgrade):
-    eco = load_economy()
-    return upgrade in eco.get("pending_upgrades", {}).get(str(user_id), [])
-
-
 def claim_bounties(user_id):
     eco = load_economy()
     active = [b for b in eco["bounties"] if b["active"]]
@@ -1550,8 +1502,11 @@ BUFFALO_TRIVIA_TOPICS = [
     "Buffalo sports heartbreaks and iconic moments",
 ]
 
+
 async def generate_buffalo_question(used_topics=None):
     import re
+    available = [t for t in BUFFALO_TRIVIA_TOPICS if t not in (used_topics or [])]
+    topic = random.choice(available) if available else random.choice(BUFFALO_TRIVIA_TOPICS)
     avoid = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
              if used_topics else "")
     try:
@@ -1562,11 +1517,8 @@ async def generate_buffalo_question(used_topics=None):
                     "role": "system",
                     "content": (
                         "You are a Buffalo sports trivia question generator. Generate one trivia question specifically about Buffalo, NY sports — the Buffalo Bills (NFL), Buffalo Sabres (NHL), or general Buffalo sports history and culture.\n"
-                        "TOPIC IDEAS (pick from these or similar):\n"
-                        "- Bills Super Bowl runs, heartbreaks, and legends (Jim Kelly, Thurman Thomas, Andre Reed, Bruce Smith, Josh Allen)\n"
-                        "- Sabres history (Dominik Hasek, Pat LaFontaine, Gilbert Perreault, the No Goal controversy)\n"
-                        "- Iconic moments: Wide Right, Music City Miracle, 13 Seconds, No Goal\n"
-                        "- Stadium/arena history, draft picks, coaching history\n"
+                        f"YOUR TOPIC FOR THIS QUESTION: {topic}\n"
+                        "Generate a question focused on this topic.\n"
                         "STRICT RULES:\n"
                         "- Only generate questions about facts you are 100% certain are correct\n"
                         "- Questions should range from easy (iconic moments everyone knows) to hard (specific stats or dates)\n"
@@ -1593,11 +1545,11 @@ async def generate_buffalo_question(used_topics=None):
                 raw = re.sub(r'[^\w\s]', '', raw).strip()
                 answer = " ".join(raw.split()[:4])
         if question and answer:
-            return question, answer
+            return question, answer, topic
     except Exception as e:
         print(f"[ERROR] Buffalo trivia generation failed: {e}")
     # Hardcoded fallbacks in case Groq fails
-    return random.choice([
+    q, a = random.choice([
         ("Who kicked the missed field goal for the Bills in Super Bowl XXV, forever known as 'Wide Right'?", "Norwood"),
         ("How many consecutive Super Bowls did the Buffalo Bills appear in?", "Four"),
         ("What Bills QB led the K-Gun offense through the four Super Bowl runs?", "Kelly"),
@@ -1609,6 +1561,7 @@ async def generate_buffalo_question(used_topics=None):
         ("What year did the Buffalo Sabres enter the NHL as an expansion team?", "1970"),
         ("Who did the Bills trade for wide receiver Stefon Diggs in 2020?", "Vikings"),
     ])
+    return q, a, topic
 
 
 async def generate_buffalo_ny_question(used_topics=None):
