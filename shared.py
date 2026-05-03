@@ -1512,51 +1512,56 @@ async def generate_buffalo_question(used_topics=None, used_answers=None):
     avoid_answers = (f"\nDo NOT generate a question whose answer is any of these already-used answers: {', '.join(used_answers)}."
                      if used_answers else "")
     avoid = avoid_topics + avoid_answers
-    try:
-        response = await groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a Buffalo sports trivia question generator. Generate one trivia question specifically about Buffalo, NY sports — the Buffalo Bills (NFL), Buffalo Sabres (NHL), or general Buffalo sports history and culture.\n"
-                        f"YOUR TOPIC FOR THIS QUESTION: {topic}\n"
-                        "Generate a question focused on this topic.\n"
-                        "VERIFIED FACTS — use these exactly, do not invent variations:\n"
-                        "- Music City Miracle: Frank Wycheck threw a lateral pass TO Kevin Dyson; Dyson scored the TD; Craig Hentrich kicked the opening kickoff but did NOT throw to Wycheck\n"
-                        "- Wide Right: Scott Norwood missed the field goal; the game was Super Bowl XXV vs New York Giants; Bills lost 20-19\n"
-                        "- 13 Seconds: Josh Allen (Bills) vs Patrick Mahomes (Chiefs); 2022 AFC Divisional round; Chiefs won\n"
-                        "- No Goal: Brett Hull scored the Cup-winning goal in 1999 Stanley Cup Finals with his skate in the crease; the rule was not enforced; Stars beat Sabres\n"
-                        "- Four Super Bowls: Bills lost all four (XXV, XXVI, XXVII, XXVIII); QB was Jim Kelly each time\n"
-                        "STRICT RULES:\n"
-                        "- Only generate questions whose answers you are 100% certain are correct — if unsure, pick a different angle\n"
-                        "- Questions should range from easy (iconic moments) to hard (specific stats or dates)\n"
-                        "- ANSWER must be a last name only (for players/coaches) or a short specific phrase (for events/years) — nothing else\n"
-                        "- Never put extra explanation in the ANSWER field\n"
-                        f"{avoid}\n"
-                        "Respond in EXACTLY this format:\n"
-                        "QUESTION: <question>\n"
-                        "ANSWER: <answer>"
-                    ),
-                },
-                {"role": "user", "content": "Generate a Buffalo sports trivia question."},
-            ],
-            max_tokens=120,
-        )
-        text = response.choices[0].message.content.strip()
-        question, answer = "", ""
-        for line in text.split("\n"):
-            upper = line.upper()
-            if upper.startswith("QUESTION:"):
-                question = line[line.index(":") + 1:].strip()
-            elif upper.startswith("ANSWER:"):
-                raw = line[line.index(":") + 1:].strip()
-                raw = re.sub(r'[^\w\s]', '', raw).strip()
-                answer = " ".join(raw.split()[:4])
-        if question and answer:
-            return question, answer, topic
-    except Exception as e:
-        print(f"[ERROR] Buffalo trivia generation failed: {e}")
+
+    for _attempt in range(3):
+        try:
+            response = await groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a Buffalo sports trivia question generator. Generate one trivia question specifically about Buffalo, NY sports — the Buffalo Bills (NFL), Buffalo Sabres (NHL), or general Buffalo sports history and culture.\n"
+                            f"YOUR TOPIC FOR THIS QUESTION: {topic}\n"
+                            "Generate a question focused on this topic.\n"
+                            "VERIFIED FACTS — use these exactly, do not invent variations:\n"
+                            "- Music City Miracle: Frank Wycheck threw a lateral pass TO Kevin Dyson; Dyson scored the TD; Craig Hentrich kicked the opening kickoff but did NOT throw to Wycheck\n"
+                            "- Wide Right: Scott Norwood missed the field goal; the game was Super Bowl XXV vs New York Giants; Bills lost 20-19\n"
+                            "- 13 Seconds: Josh Allen (Bills) vs Patrick Mahomes (Chiefs); 2022 AFC Divisional round; Chiefs won\n"
+                            "- No Goal: Brett Hull scored the Cup-winning goal in 1999 Stanley Cup Finals with his skate in the crease; the rule was not enforced; Stars beat Sabres\n"
+                            "- Four Super Bowls: Bills lost all four (XXV, XXVI, XXVII, XXVIII); QB was Jim Kelly each time\n"
+                            "STRICT RULES:\n"
+                            "- Only generate questions whose answers you are 100% certain are correct — if unsure, pick a different angle\n"
+                            "- Questions should range from easy (iconic moments) to hard (specific stats or dates)\n"
+                            "- ANSWER must be a last name only (for players/coaches) or a short specific phrase (for events/years) — nothing else\n"
+                            "- Never put extra explanation in the ANSWER field\n"
+                            f"{avoid}\n"
+                            "Respond in EXACTLY this format:\n"
+                            "QUESTION: <question>\n"
+                            "ANSWER: <answer>"
+                        ),
+                    },
+                    {"role": "user", "content": "Generate a Buffalo sports trivia question."},
+                ],
+                max_tokens=120,
+            )
+            text = response.choices[0].message.content.strip()
+            question, answer = "", ""
+            for line in text.split("\n"):
+                upper = line.upper()
+                if upper.startswith("QUESTION:"):
+                    question = line[line.index(":") + 1:].strip()
+                elif upper.startswith("ANSWER:"):
+                    raw = line[line.index(":") + 1:].strip()
+                    raw = re.sub(r'[^\w\s]', '', raw).strip()
+                    answer = " ".join(raw.split()[:4])
+            if question and answer:
+                if used_answers and answer.lower() in [a.lower() for a in used_answers]:
+                    continue  # duplicate answer — retry with same topic
+                return question, answer, topic
+        except Exception as e:
+            print(f"[ERROR] Buffalo trivia generation failed: {e}")
+            break
     # Hardcoded fallbacks in case Groq fails
     q, a = random.choice([
         ("Who kicked the missed field goal for the Bills in Super Bowl XXV, forever known as 'Wide Right'?", "Norwood"),
