@@ -10,22 +10,12 @@ from shared import (
     _sparkline, _market_sentiment, _get_target_stock_info, _get_delisted_stocks,
     init_market, get_portfolio_value, init_derivatives, _get_random_member_name,
     execute_market_buy, execute_market_sell, execute_open_short, execute_close_short,
-    calc_option_premium,
+    calc_option_premium, _fmt_pnl, resolve_member_name,
 )
 
 class StocksCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    def _resolve_name(self, uid: int, ctx_guild) -> str:
-        member = ctx_guild.get_member(uid)
-        if member:
-            return member.display_name
-        for guild in self.bot.guilds:
-            member = guild.get_member(uid)
-            if member:
-                return member.display_name
-        return f"User {uid}"
 
     async def cog_load(self):
         self.dividend_payout.start()
@@ -512,11 +502,10 @@ class StocksCog(commands.Cog):
                 member = guild.get_member(int(uid))
                 if not member:
                     continue
-                pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 await channel.send(
                     f"🚨 **MARGIN CALL** — {member.mention}'s short on **${ticker}** ({shares} shares) was "
                     f"force-liquidated at **${price:.2f}**. "
-                    f"P&L: **{pnl_str} coins** | Returned: **{returned:.0f} coins**"
+                    f"P&L: **{_fmt_pnl(pnl)} coins** | Returned: **{returned:.0f} coins**"
                 )
 
 
@@ -694,7 +683,7 @@ class StocksCog(commands.Cog):
             ranked = sorted(all_uids, key=lambda u: get_portfolio_value(eco, u), reverse=True)[:5]
             lines.append("\n**Top Portfolio Values:**")
             for uid in ranked:
-                name = self._resolve_name(int(uid), ctx.guild)
+                name = resolve_member_name(int(uid), ctx.guild)
                 val = get_portfolio_value(eco, uid)
                 lines.append(f"  **{name}** — {val:.0f} coins")
 
@@ -858,26 +847,24 @@ class StocksCog(commands.Cog):
                 price = eco["market"][ticker]["price"]
                 value = round(pos["shares"] * price, 2)
                 pnl = round((price - pos["avg_cost"]) * pos["shares"], 2)
-                pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 total_value += value
                 pct = (price / pos["avg_cost"] - 1) * 100 if pos["avg_cost"] else 0
                 pct_str = f"{pct:+.1f}%"
                 lines.append(
                     f"  **${ticker}** — {pos['shares']} shares @ avg ${pos['avg_cost']:.2f} | "
-                    f"Now: ${price:.2f} ({pct_str}) | Value: {value:.0f} | P&L: **{pnl_str}**"
+                    f"Now: ${price:.2f} ({pct_str}) | Value: {value:.0f} | P&L: **{_fmt_pnl(pnl)}**"
                 )
         if shorts:
             lines.append("\n**Short Positions:**")
             for ticker, pos in shorts.items():
                 price = eco["market"][ticker]["price"]
                 pnl = round((pos["avg_price"] - price) * pos["shares"], 2)
-                pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
                 total_value += pos["collateral"] + pnl
                 pct = (pos["avg_price"] / price - 1) * 100 if price else 0
                 pct_str = f"{pct:+.1f}%"
                 lines.append(
                     f"  **${ticker}** — {pos['shares']} shares short @ ${pos['avg_price']:.2f} | "
-                    f"Now: ${price:.2f} ({pct_str}) | Collateral: {pos['collateral']:.0f} | P&L: **{pnl_str}**"
+                    f"Now: ${price:.2f} ({pct_str}) | Collateral: {pos['collateral']:.0f} | P&L: **{_fmt_pnl(pnl)}**"
                 )
         lines.append(f"\n**Total Portfolio Value: {total_value:.0f} coins**")
         await ctx.send("\n".join(lines))
@@ -999,10 +986,9 @@ class StocksCog(commands.Cog):
         eco["balances"][uid] = eco["balances"].get(uid, 0) + returned
         eco["futures"][uid] = [p for p in positions if p["id"] != deriv_id]
         save_economy(eco)
-        pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
         await ctx.send(
             f"✅ Closed futures **#{deriv_id}**: **{pos['direction'].upper()} {pos['contracts']}x ${pos['ticker']}**. "
-            f"P&L: **{pnl_str} coins**. Returned: **{returned:.0f} coins**."
+            f"P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returned:.0f} coins**."
         )
 
 
@@ -1024,11 +1010,10 @@ class StocksCog(commands.Cog):
             pnl = (price - pos["entry_price"]) * pos["contracts"] if pos["direction"] == "long" \
                 else (pos["entry_price"] - price) * pos["contracts"]
             pnl = round(pnl, 2)
-            pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
             days_left = max(0, (datetime.datetime.fromisoformat(pos["expiry"]) - now).days)
             lines.append(
                 f"**#{pos['id']}** {pos['direction'].upper()} **{pos['contracts']}x ${pos['ticker']}** "
-                f"@ ${pos['entry_price']:.2f} | Now: ${price:.2f} | P&L: **{pnl_str}** | {days_left}d left"
+                f"@ ${pos['entry_price']:.2f} | Now: ${price:.2f} | P&L: **{_fmt_pnl(pnl)}** | {days_left}d left"
             )
         lines.append("\nUse `!closefutures <id>` to close early.")
         await ctx.send("\n".join(lines))
@@ -1120,10 +1105,9 @@ class StocksCog(commands.Cog):
         opt["exercised"] = True
         save_economy(eco)
         net_pnl = round(payout - opt["premium_paid"], 2)
-        net_str = f"+{net_pnl:.0f}" if net_pnl >= 0 else str(round(net_pnl))
         await ctx.send(
             f"✅ Exercised **#{deriv_id}** ({opt['option_type'].upper()} ${opt['ticker']} @ ${opt['strike']:.2f}). "
-            f"Payout: **{payout:.0f} coins**. Net P&L: **{net_str} coins**."
+            f"Payout: **{payout:.0f} coins**. Net P&L: **{_fmt_pnl(net_pnl)} coins**."
         )
 
 

@@ -10,23 +10,12 @@ from shared import (
     get_guild_config, is_donovan, is_double_coin_day, get_daily_reward,
     get_shop_rotation, consume_upgrade, has_upgrade, claim_bounties,
     is_insurance_active, record_trivia_win, init_market, init_derivatives,
-    get_portfolio_value, _t,
+    get_portfolio_value, _t, resolve_member_name,
 )
 
 class EconomyCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    def _resolve_name(self, uid: int, ctx_guild) -> str:
-        """Look up a display name, searching all bot guilds if not in the current one."""
-        member = ctx_guild.get_member(uid)
-        if member:
-            return member.display_name
-        for guild in self.bot.guilds:
-            member = guild.get_member(uid)
-            if member:
-                return member.display_name
-        return f"User {uid}"
 
     @commands.command(name="daily")
     async def daily_checkin(self, ctx):
@@ -225,7 +214,7 @@ class EconomyCog(commands.Cog):
         top = sorted(eco["balances"].keys(), key=net_worth, reverse=True)[:5]
         lines = []
         for i, uid in enumerate(top, 1):
-            name = self._resolve_name(int(uid), ctx.guild)
+            name = resolve_member_name(int(uid), ctx.guild)
             cash = round(eco["balances"].get(str(uid), 0))
             total = net_worth(uid)
             portfolio = round(total - cash)
@@ -508,7 +497,7 @@ class EconomyCog(commands.Cog):
         top = sorted(wins.items(), key=lambda x: x[1], reverse=True)[:10]
         lines = []
         for i, (uid, count) in enumerate(top, 1):
-            name = self._resolve_name(int(uid), ctx.guild)
+            name = resolve_member_name(int(uid), ctx.guild)
             lines.append(f"{i}. **{name}** — {count} win{'s' if count != 1 else ''}")
         await ctx.send("🧠 **Trivia Leaderboard** _(all-time wins across !trivia and !sportstrivia)_\n" + "\n".join(lines))
 

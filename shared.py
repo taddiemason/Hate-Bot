@@ -983,8 +983,7 @@ def execute_market_sell(eco, uid, ticker, shares):
     port[ticker]["shares"] -= shares
     if port[ticker]["shares"] == 0:
         del port[ticker]
-    pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
-    return True, f"Sold **{shares}** shares of **${ticker}** at **${price:.2f}**. Proceeds: **{proceeds:.0f} coins** (P&L: **{pnl_str}**). New price: **${new_price:.2f}**"
+    return True, f"Sold **{shares}** shares of **${ticker}** at **${price:.2f}**. Proceeds: **{proceeds:.0f} coins** (P&L: **{_fmt_pnl(pnl)}**). New price: **${new_price:.2f}**"
 
 
 def execute_open_short(eco, uid, ticker, shares):
@@ -1030,8 +1029,7 @@ def execute_close_short(eco, uid, ticker, shares):
     pos["collateral"] = round(pos["collateral"] - collateral_back, 2)
     if pos["shares"] == 0:
         del shorts[ticker]
-    pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
-    return True, f"Covered **{shares}** shares of **${ticker}** at **${price:.2f}**. P&L: **{pnl_str} coins**. Returned: **{returns:.0f} coins**. New price: **${new_price:.2f}**"
+    return True, f"Covered **{shares}** shares of **${ticker}** at **${price:.2f}**. P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returns:.0f} coins**. New price: **${new_price:.2f}**"
 
 
 def get_portfolio_value(eco, uid):
@@ -1073,14 +1071,13 @@ async def settle_expired_futures(eco, channel):
             pnl = round(pnl, 2)
             returned = max(round(pos["margin"] + pnl, 2), 0)
             eco["balances"][uid] = eco["balances"].get(uid, 0) + returned
-            pnl_str = f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
             if channel:
                 member = channel.guild.get_member(int(uid))
                 mention = member.mention if member else f"<@{uid}>"
                 await channel.send(
                     f"📅 {mention} Futures **#{pos['id']}** settled: "
                     f"**{pos['direction'].upper()} {pos['contracts']} ${pos['ticker']}** "
-                    f"${pos['entry_price']:.2f} → ${price:.2f} | P&L: **{pnl_str}** | Returned: **{returned:.0f} coins**"
+                    f"${pos['entry_price']:.2f} → ${price:.2f} | P&L: **{_fmt_pnl(pnl)}** | Returned: **{returned:.0f} coins**"
                 )
         eco["futures"][uid] = remaining
 
@@ -1276,6 +1273,24 @@ def is_insurance_active():
     if not exp:
         return False
     return datetime.datetime.fromisoformat(exp) > datetime.datetime.now(datetime.timezone.utc)
+
+
+def _fmt_pnl(pnl: float) -> str:
+    """Format a P&L value with a leading + when positive."""
+    return f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
+
+
+def resolve_member_name(uid: int, primary_guild) -> str:
+    """Return a display name for uid, checking primary_guild then all bot guilds."""
+    if primary_guild:
+        member = primary_guild.get_member(uid)
+        if member:
+            return member.display_name
+    for guild in (_bot.guilds if _bot else []):
+        member = guild.get_member(uid)
+        if member:
+            return member.display_name
+    return f"User {uid}"
 
 
 def consume_upgrade(user_id, upgrade):
