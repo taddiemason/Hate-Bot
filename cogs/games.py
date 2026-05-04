@@ -1,6 +1,7 @@
 import asyncio
 import random
 import datetime
+from difflib import SequenceMatcher
 from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands
@@ -443,7 +444,16 @@ class GamesCog(commands.Cog):
             return len(content) > 1 and not content.startswith("!")
 
 
-        async def collect_winner(question: str, answer: str):
+        def fuzzy_match(expected: str, user: str) -> bool:
+            exp = "".join(ch for ch in expected.lower() if ch.isalnum() or ch.isspace()).strip()
+            usr = "".join(ch for ch in user.lower() if ch.isalnum() or ch.isspace()).strip()
+            if not exp or not usr:
+                return False
+            if exp in usr or usr in exp:
+                return True
+            return SequenceMatcher(None, exp, usr).ratio() >= 0.86
+
+        async def collect_winner(question: str, answer: str, is_city_round: bool):
             deadline = asyncio.get_running_loop().time() + round_timeout
             while True:
                 remaining = deadline - asyncio.get_running_loop().time()
@@ -456,10 +466,15 @@ class GamesCog(commands.Cog):
                     return None
 
                 user_answer = msg.content.strip()
-                if len(user_answer.split()) > 6:
+                if user_answer.isdigit() and answer.isdigit():
+                    correct = user_answer == answer
+                elif len(user_answer.split()) > 6:
                     correct = answer.lower() in user_answer.lower()
+                elif is_city_round and fuzzy_match(answer, user_answer):
+                    correct = True
                 else:
-                    correct = await judge_sports_answer(question, answer, user_answer)
+                    correct = await (judge_trivia_answer(question, answer, user_answer) if is_city_round
+                                     else judge_sports_answer(question, answer, user_answer))
 
                 if correct:
                     return msg.author
@@ -477,14 +492,16 @@ class GamesCog(commands.Cog):
                     question, answer = await generate_buffalo_ny_question(used_city_topics)
                     used_city_topics.append(answer)
                     round_label = f"**Round {round_num}/{total_rounds} — 🌆 Buffalo City Trivia**"
+                    is_city_round = True
                 else:
                     question, answer, topic = await generate_buffalo_question(used_sports_topics, used_sports_answers)
                     used_sports_topics.append(topic)
                     used_sports_answers.append(answer)
                     round_label = f"**Round {round_num}/{total_rounds} — 🦬 Buffalo Sports Trivia**"
+                    is_city_round = False
 
                 await ctx.send(f"{round_label}\n\n_{question}_\n\n⏱️ {round_timeout} seconds!")
-                winner = await collect_winner(question, answer)
+                winner = await collect_winner(question, answer, is_city_round)
 
                 if winner:
                     add_coins(winner.id, round_reward)
