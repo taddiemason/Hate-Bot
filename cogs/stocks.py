@@ -708,12 +708,13 @@ class StocksCog(commands.Cog):
         if not ticker or not shares or shares <= 0:
             await ctx.send("Usage: `!buystock <TICKER> <shares>` — e.g. `!buystock DONOVAN 10`")
             return
-        ticker = ticker.lstrip("$").upper()
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        ticker = ticker.lstrip("$").upper()
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         ok, msg = execute_market_buy(eco, ctx.author.id, ticker, shares)
         save_economy(eco)
         await ctx.send(("✅ " if ok else "❌ ") + msg)
@@ -725,12 +726,13 @@ class StocksCog(commands.Cog):
         if not ticker or not shares or shares <= 0:
             await ctx.send("Usage: `!sellstock <TICKER> <shares>` — e.g. `!sellstock DONOVAN 10`")
             return
-        ticker = ticker.lstrip("$").upper()
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        ticker = ticker.lstrip("$").upper()
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         ok, msg = execute_market_sell(eco, ctx.author.id, ticker, shares)
         save_economy(eco)
         await ctx.send(("✅ " if ok else "❌ ") + msg)
@@ -744,12 +746,13 @@ class StocksCog(commands.Cog):
             tgt_ticker = get_guild_target(gid)["ticker"]
             await ctx.send(f"Usage: `!short <TICKER> <shares>` — Only `${tgt_ticker}` is shortable.")
             return
-        ticker = ticker.lstrip("$").upper()
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        ticker = ticker.lstrip("$").upper()
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         ok, msg = execute_open_short(eco, ctx.author.id, ticker, shares)
         save_economy(eco)
         await ctx.send(("✅ " if ok else "❌ ") + msg)
@@ -761,12 +764,13 @@ class StocksCog(commands.Cog):
         if not ticker or not shares or shares <= 0:
             await ctx.send("Usage: `!cover <TICKER> <shares>` — e.g. `!cover DONOVAN 10`")
             return
-        ticker = ticker.lstrip("$").upper()
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        ticker = ticker.lstrip("$").upper()
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         ok, msg = execute_close_short(eco, ctx.author.id, ticker, shares)
         save_economy(eco)
         await ctx.send(("✅ " if ok else "❌ ") + msg)
@@ -786,11 +790,12 @@ class StocksCog(commands.Cog):
         if order_type not in ("buy", "sell", "short", "cover"):
             await ctx.send("Order type must be `buy`, `sell`, `short`, or `cover`.")
             return
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         order_id = eco.get("next_order_id", 1)
         eco["next_order_id"] = order_id + 1
         eco.setdefault("limit_orders", []).append({
@@ -877,10 +882,12 @@ class StocksCog(commands.Cog):
             await ctx.send("Usage: `!stockalert <TICKER> <price>` — you'll be pinged when the stock crosses that price.")
             return
         ticker = ticker.upper()
-        if ticker not in shared.MARKET_STOCKS:
+        eco = load_economy()
+        init_market(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        if ticker not in all_stocks:
             await ctx.send(f"Unknown ticker **${ticker}**. Check `!stockmarket` for valid tickers.")
             return
-        eco = load_economy()
         alerts = eco.setdefault("stock_alerts", [])
         # Remove existing alert for same user+ticker
         eco["stock_alerts"] = [a for a in alerts if not (a["uid"] == str(ctx.author.id) and a["ticker"] == ticker)]
@@ -929,12 +936,13 @@ class StocksCog(commands.Cog):
         if direction not in ("long", "short"):
             await ctx.send("Direction must be `long` or `short`.")
             return
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         eco = load_economy()
         init_market(eco)
         init_derivatives(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         price = eco["market"][ticker]["price"]
         margin = round(price * contracts * 0.20, 2)
         uid = str(ctx.author.id)
@@ -1033,15 +1041,16 @@ class StocksCog(commands.Cog):
         if option_type not in ("call", "put"):
             await ctx.send("Option type must be `call` or `put`.")
             return
-        if ticker not in shared.MARKET_STOCKS:
-            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in shared.MARKET_STOCKS)}")
-            return
         if not 1 <= days <= 30:
             await ctx.send("Expiry must be between 1 and 30 days.")
             return
         eco = load_economy()
         init_market(eco)
         init_derivatives(eco)
+        all_stocks = {**shared.MARKET_STOCKS, **_get_target_stock_info(eco)}
+        if ticker not in all_stocks:
+            await ctx.send(f"Unknown ticker. Available: {', '.join(f'${t}' for t in all_stocks)}")
+            return
         spot = eco["market"][ticker]["price"]
         premium_per = calc_option_premium(spot, strike, option_type, days)
         total_premium = round(premium_per * contracts, 2)
