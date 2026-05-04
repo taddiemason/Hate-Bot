@@ -158,6 +158,7 @@ MARKET_STOCKS = {
     "FLORIDA": {"name": "Florida Man Holdings",    "base_price": 55.0,  "shares_outstanding": 3500,  "shortable": True, "volatility": 6.0, "mean_reversion": 0.01,  "daily_volume": 1200},
     "YEEZY":   {"name": "Ye Industries",           "base_price": 88.0,  "shares_outstanding": 1000,  "shortable": True, "volatility": 9.0, "mean_reversion": 0.005, "daily_volume": 200},
     "WENDY":   {"name": "Wendy's Corp",            "base_price": 38.0,  "shares_outstanding": 6000,  "shortable": True, "volatility": 2.8, "mean_reversion": 0.04,  "daily_volume": 1800, "dividend_rate": 0.007},
+    "TARGET":  {"name": "Target Corporation",      "base_price": 62.0,  "shares_outstanding": 5000,  "shortable": True, "volatility": 2.5, "mean_reversion": 0.03,  "daily_volume": 1600},
 }
 
 _TARGET_STOCK_DEFAULTS = {
@@ -542,6 +543,44 @@ _STOCK_NEWS = {
         {"headline": "{member} cums every time Wendy's posts a new ratio", "impact": (-155, 190)},
         {"headline": "{member} gets publicly humiliated by Wendy's for eating Big Macs", "impact": (-172, 165), "linked": [("BIGMAC", (-60, -30))]},
         {"headline": "{member} becomes Wendy's official Twitter cumslut", "impact": (-185, 210)}
+    ],
+
+    "TARGET": [
+        {"headline": "Target announces new store-within-a-store concept — analysts call it 'a store'",  "impact": (-4, 8)},
+        {"headline": "Target dollar spot sells out in 11 minutes — economists baffled",                  "impact": (5, 14)},
+        {"headline": "Target app crashes on payday — customers forced to shop consciously",              "impact": (-8, -2)},
+        {"headline": "Target introduces members-only fridge section — nobody asked for this",            "impact": (-5, 6)},
+        {"headline": "Target shopper enters for one item, exits $300 lighter — system working as intended", "impact": (8, 18)},
+        {"headline": "Target self-checkout redesign confuses {member} for 20 minutes",                   "impact": (-6, 2)},
+        {"headline": "Target quarterly earnings beat expectations — CFO credits 'the vibes'",            "impact": (6, 15)},
+        {"headline": "Target announces collaboration with trendy designer — sellout in 4 minutes",       "impact": (10, 22)},
+        {"headline": "Target raises minimum wage — stock inexplicably drops",                            "impact": (-8, 4)},
+        {"headline": "Target café introduces new Starbucks item — {member} becomes a regular",           "impact": (4, 10)},
+        {"headline": "Target supply chain disruption traced back to {member}'s bulk cart returns",       "impact": (-10, -3)},
+        {"headline": "Target 'Up & Up' brand outsells name brands — consumers choose chaos",             "impact": (5, 12)},
+        {"headline": "Target opens new location — Ohio refuses to accept it",                           "impact": (-4, 8),   "linked": [("OHIO", (-10, 10))]},
+        {"headline": "Target loyalty program hits 100M members — 99M joined for one discount",          "impact": (6, 14)},
+        {"headline": "Target Starbucks location runs out of oat milk — {member} emotionally destroyed",  "impact": (-6, -1)},
+        {"headline": "Target announces new toy line — Wendy's immediately roasts it on Twitter",         "impact": (-4, 6),   "linked": [("WENDY", (2, 6))]},
+        {"headline": "Florida man arrested at Target for unspecified cart-related crimes",               "impact": (-8, 4),   "linked": [("FLORIDA", (3, 8))]},
+        {"headline": "Target introduces Big Mac bundle deal — McDonald's confused and flattered",        "impact": (4, 10),   "linked": [("BIGMAC", (2, 6))]},
+        {"headline": "Target Black Friday stampede injures nobody — disappointingly civil",              "impact": (-3, 8)},
+        {"headline": "Target announces new CEO — hired entirely based on cart-pushing speed",            "impact": (-5, 10)},
+        {"headline": "{member} proposes to a Target employee — ring is from the dollar spot",           "impact": (-14, 10)},
+        {"headline": "{member} gets banned from Target for living in the home section for three weeks", "impact": (-18, 8)},
+        {"headline": "{member} eats an entire sample display in the food section and calls it dinner",   "impact": (-16, 6)},
+        {"headline": "{member} tries to return something they clearly stole — self-checkout catches it", "impact": (-20, -8)},
+        {"headline": "{member} has a breakdown in the Target dollar spot and buys 47 seasonal items",   "impact": (-15, 12)},
+        {"headline": "{member} fucks an entire Target aisle then reorganises it better than the staff", "impact": (-85, 70)},
+        {"headline": "{member} moves into the Target Starbucks and refuses to leave", "impact": (-90, 60)},
+        {"headline": "{member} gets arrested trying to return himself to Target for store credit", "impact": (-100, -50)},
+        {"headline": "{member} marries the Target self-checkout machine — it declines him", "impact": (-110, 80)},
+        {"headline": "{member} does COCAINE off the Target Dollar Spot endcap at 11am on a Tuesday", "impact": (-120, 95), "linked": [("COCAINE", (50, 90))]},
+        {"headline": "{member} gets impregnated by the Target cart return and sues for child support", "impact": (-130, 100)},
+        {"headline": "{member} rawdogs the Target loyalty rewards program and earns 0 points", "impact": (-95, -55)},
+        {"headline": "{member} turns the Target fitting room into a full-time residence", "impact": (-105, 75)},
+        {"headline": "{member} fucks the Target bullseye logo and gets a tattoo to commemorate", "impact": (-115, 85)},
+        {"headline": "{member} gets chased out of Target by the Taco Bell inside — full circle", "impact": (-88, 90), "linked": [("TBELL", (40, 70))]},
     ],
 }
 
