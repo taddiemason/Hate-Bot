@@ -4,6 +4,7 @@ import random
 import asyncio
 import tempfile
 import datetime
+from collections import deque
 from zoneinfo import ZoneInfo
 import discord
 from openai import AsyncOpenAI
@@ -1523,7 +1524,35 @@ BUFFALO_TRIVIA_TOPICS = [
     "Ralph Wilson Stadium / Highmark Stadium history",
     "KeyBank Center / HSBC Arena history",
     "Buffalo sports heartbreaks and iconic moments",
+    "Buffalo Bandits (NLL) championships and stars",
+    "Buffalo Braves NBA era (1970–1978)",
+    "University at Buffalo Bulls football milestones",
+    "University at Buffalo Bulls basketball milestones",
+    "Buffalo Beauts and women’s hockey in Buffalo",
+    "Bills vs Patriots rivalry moments",
+    "Bills vs Dolphins rivalry moments",
+    "Sabres French Connection line",
+    "Ryan Miller era with the Buffalo Sabres",
+    "Buffalo sports venues before Highmark/KeyBank",
+    "Famous Buffalo coaches and front offices",
+    "Memorable Bills playoff wins in the 2020s",
 ]
+
+BUFFALO_CITY_TRIVIA_TOPICS = [
+    "Buffalo food culture and iconic dishes",
+    "Buffalo neighborhoods and districts",
+    "Buffalo architecture and landmark buildings",
+    "Buffalo industrial and canal history",
+    "Buffalo weather and major snow events",
+    "Buffalo music, arts, and festivals",
+    "Notable Buffalo-born public figures",
+    "Parks, waterfronts, and public spaces in Buffalo",
+    "Transportation and historic infrastructure in Buffalo",
+    "Buffalo museums and cultural institutions",
+]
+
+BUFFALO_RECENT_SPORTS_QUESTIONS = deque(maxlen=75)
+BUFFALO_RECENT_CITY_QUESTIONS = deque(maxlen=75)
 
 
 async def generate_buffalo_question(used_topics=None, used_answers=None):
@@ -1534,7 +1563,11 @@ async def generate_buffalo_question(used_topics=None, used_answers=None):
                     if used_topics else "")
     avoid_answers = (f"\nDo NOT generate a question whose answer is any of these already-used answers: {', '.join(used_answers)}."
                      if used_answers else "")
-    avoid = avoid_topics + avoid_answers
+    recent_question_avoid = (
+        f"\nDo NOT reuse or closely paraphrase any of these recently asked questions: {' || '.join(BUFFALO_RECENT_SPORTS_QUESTIONS)}."
+        if BUFFALO_RECENT_SPORTS_QUESTIONS else ""
+    )
+    avoid = avoid_topics + avoid_answers + recent_question_avoid
 
     for _attempt in range(3):
         try:
@@ -1579,8 +1612,12 @@ async def generate_buffalo_question(used_topics=None, used_answers=None):
                     raw = re.sub(r'[^\w\s]', '', raw).strip()
                     answer = " ".join(raw.split()[:4])
             if question and answer:
+                normalized_q = " ".join(question.lower().split())
+                if any(normalized_q == " ".join(q.lower().split()) for q in BUFFALO_RECENT_SPORTS_QUESTIONS):
+                    continue
                 if used_answers and answer.lower() in [a.lower() for a in used_answers]:
                     continue  # duplicate answer — retry with same topic
+                BUFFALO_RECENT_SPORTS_QUESTIONS.append(question)
                 return question, answer, topic
         except Exception as e:
             print(f"[ERROR] Buffalo trivia generation failed: {e}")
@@ -1604,52 +1641,65 @@ async def generate_buffalo_question(used_topics=None, used_answers=None):
 async def generate_buffalo_ny_question(used_topics=None):
     """Generate a general Buffalo, NY trivia question (food, history, culture, landmarks)."""
     import re
-    avoid = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
-             if used_topics else "")
-    try:
-        response = await groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a Buffalo, NY local knowledge trivia question generator. Generate one trivia question about Buffalo, New York — the city itself, NOT sports.\n"
-                        "TOPIC IDEAS (pick from these or similar):\n"
-                        "- Buffalo food culture: Buffalo wings (where were they invented?), beef on weck, sponge candy, loganberry, Perry's ice cream\n"
-                        "- Buffalo landmarks: Niagara Square, Canalside, Elmwood Village, Allentown, Delaware Park, the Albright-Knox Art Gallery\n"
-                        "- Buffalo history: the Pan-American Exposition, President McKinley's assassination, the Erie Canal, steel industry\n"
-                        "- Buffalo architecture: Frank Lloyd Wright's Darwin Martin House, H.H. Richardson buildings\n"
-                        "- Niagara Falls proximity and local geography\n"
-                        "- Famous people from Buffalo: Grover Cleveland, Wolf Blitzer, Tim Russert\n"
-                        "- Local culture: lake effect snow, the Blizzard of '77, chicken finger subs\n"
-                        "STRICT RULES:\n"
-                        "- Only generate questions about facts you are 100% certain are correct\n"
-                        "- ANSWER must be a short specific phrase, name, or year — nothing else\n"
-                        "- Never put extra explanation in the ANSWER field\n"
-                        f"{avoid}\n"
-                        "Respond in EXACTLY this format:\n"
-                        "QUESTION: <question>\n"
-                        "ANSWER: <answer>"
-                    ),
-                },
-                {"role": "user", "content": "Generate a Buffalo, NY local trivia question."},
-            ],
-            max_tokens=120,
-        )
-        text = response.choices[0].message.content.strip()
-        question, answer = "", ""
-        for line in text.split("\n"):
-            upper = line.upper()
-            if upper.startswith("QUESTION:"):
-                question = line[line.index(":") + 1:].strip()
-            elif upper.startswith("ANSWER:"):
-                raw = line[line.index(":") + 1:].strip()
-                raw = re.sub(r'[^\w\s]', '', raw).strip()
-                answer = " ".join(raw.split()[:4])
-        if question and answer:
-            return question, answer
-    except Exception as e:
-        print(f"[ERROR] Buffalo NY trivia generation failed: {e}")
+    city_topic = random.choice(BUFFALO_CITY_TRIVIA_TOPICS)
+    avoid_topics = (f"\nDo NOT generate questions about any of these already-used topics: {'; '.join(used_topics)}."
+                    if used_topics else "")
+    avoid_recent_questions = (
+        f"\nDo NOT reuse or closely paraphrase any of these recently asked questions: {' || '.join(BUFFALO_RECENT_CITY_QUESTIONS)}."
+        if BUFFALO_RECENT_CITY_QUESTIONS else ""
+    )
+    avoid = avoid_topics + avoid_recent_questions
+    for _attempt in range(3):
+        try:
+            response = await groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a Buffalo, NY local knowledge trivia question generator. Generate one trivia question about Buffalo, New York — the city itself, NOT sports.\n"
+                            f"TOPIC FOR THIS QUESTION: {city_topic}\n"
+                            "TOPIC IDEAS (pick from these or similar):\n"
+                            "- Buffalo food culture: Buffalo wings (where were they invented?), beef on weck, sponge candy, loganberry, Perry's ice cream\n"
+                            "- Buffalo landmarks: Niagara Square, Canalside, Elmwood Village, Allentown, Delaware Park, the Albright-Knox Art Gallery\n"
+                            "- Buffalo history: the Pan-American Exposition, President McKinley's assassination, the Erie Canal, steel industry\n"
+                            "- Buffalo architecture: Frank Lloyd Wright's Darwin Martin House, H.H. Richardson buildings\n"
+                            "- Niagara Falls proximity and local geography\n"
+                            "- Famous people from Buffalo: Grover Cleveland, Wolf Blitzer, Tim Russert\n"
+                            "- Local culture: lake effect snow, the Blizzard of '77, chicken finger subs\n"
+                            "STRICT RULES:\n"
+                            "- Only generate questions about facts you are 100% certain are correct\n"
+                            "- ANSWER must be a short specific phrase, name, or year — nothing else\n"
+                            "- Never put extra explanation in the ANSWER field\n"
+                            f"{avoid}\n"
+                            "Respond in EXACTLY this format:\n"
+                            "QUESTION: <question>\n"
+                            "ANSWER: <answer>"
+                        ),
+                    },
+                    {"role": "user", "content": "Generate a Buffalo, NY local trivia question."},
+                ],
+                max_tokens=120,
+            )
+            text = response.choices[0].message.content.strip()
+            question, answer = "", ""
+            for line in text.split("\n"):
+                upper = line.upper()
+                if upper.startswith("QUESTION:"):
+                    question = line[line.index(":") + 1:].strip()
+                elif upper.startswith("ANSWER:"):
+                    raw = line[line.index(":") + 1:].strip()
+                    raw = re.sub(r'[^\w\s]', '', raw).strip()
+                    answer = " ".join(raw.split()[:4])
+            if question and answer:
+                normalized_q = " ".join(question.lower().split())
+                if any(normalized_q == " ".join(q.lower().split()) for q in BUFFALO_RECENT_CITY_QUESTIONS):
+                    continue
+                BUFFALO_RECENT_CITY_QUESTIONS.append(question)
+                return question, answer
+        except Exception as e:
+            print(f"[ERROR] Buffalo NY trivia generation failed: {e}")
+            break
     return random.choice([
         ("At which Buffalo restaurant were Buffalo wings invented?", "Anchor Bar"),
         ("What is the name of the classic Buffalo sandwich served on a salt-crusted roll?", "Beef on Weck"),
@@ -2316,5 +2366,3 @@ def _sparkline(prices):
     if hi == lo:
         return blocks[3] * len(prices)
     return "".join(blocks[round((p - lo) / (hi - lo) * 7)] for p in prices)
-
-
