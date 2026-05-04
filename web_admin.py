@@ -597,6 +597,12 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
 </table>"""
 
         body = f"""{msg}
+<div class="panel">
+  <h2 style="margin-top:0">Manual Actions</h2>
+  <form method="post" action="/api/triggerdividends" onsubmit="return confirm('Pay dividends right now using current market prices?');">
+    <input type="submit" class="btn" value="Run Dividend Payout Now">
+  </form>
+</div>
 <table>
   <thead><tr><th>Ticker</th><th>Name</th><th>Price</th><th>Short Interest</th><th>Trend</th><th>Override Price</th></tr></thead>
   <tbody>{rows}</tbody>
@@ -747,6 +753,42 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             ))
         log_event("WARN", f"[Admin] Manual event fired: ${ticker} — {headline[:60]}")
         return aiohttp.web.HTTPFound(f"/stocks?ok=Event+fired+for+{ticker}")
+
+    async def handle_triggerdividends_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        import shared as _shared
+        eco = load_eco()
+        _shared.init_market(eco)
+        payouts = {}
+
+        for ticker, info in _shared.MARKET_STOCKS.items():
+            rate = info.get("dividend_rate")
+            if not rate:
+                continue
+            price = eco.get("market", {}).get(ticker, {}).get("price", info.get("base_price", 0))
+            per_share = round(price * rate, 2)
+            if per_share <= 0:
+                continue
+            for uid, port in eco.get("portfolios", {}).items():
+                shares = port.get(ticker, {}).get("shares", 0)
+                if shares <= 0:
+                    continue
+                earned = round(per_share * shares)
+                eco.setdefault("balances", {})[uid] = eco.get("balances", {}).get(uid, 0) + earned
+                payouts.setdefault(uid, 0)
+                payouts[uid] += earned
+
+        save_eco(eco)
+        if not payouts:
+            log_event("WARN", "[Admin] Manual dividend payout ran: no eligible holders")
+            return aiohttp.web.HTTPFound("/stocks?ok=Dividend+payout+ran+%28no+eligible+holders%29")
+
+        total_paid = sum(payouts.values())
+        log_event("WARN", f"[Admin] Manual dividend payout ran: {len(payouts)} user(s), {total_paid} coins paid")
+        return aiohttp.web.HTTPFound(
+            f"/stocks?ok=Dividend+payout+complete%3A+paid+{total_paid}+coins+to+{len(payouts)}+user%28s%29"
+        )
 
     # ── User Detail ──────────────────────────────────────────────────────────
 
@@ -1031,6 +1073,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_get("/stocks", handle_stocks)
     app.router.add_post("/api/setprice", handle_setprice_api)
     app.router.add_post("/api/triggerevent", handle_triggerevent_api)
+    app.router.add_post("/api/triggerdividends", handle_triggerdividends_api)
     app.router.add_post("/api/deliststock", handle_deliststock_api)
     app.router.add_post("/api/removestock", handle_removestock_api)
     app.router.add_get("/user/{uid}", handle_user)

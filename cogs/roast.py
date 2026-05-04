@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord.ext import commands, tasks
 import shared
-from shared import update_stocks_on_roast, claim_bounties
+from shared import update_stocks_on_roast, claim_bounties, _t
 from database import load_count, save_count, log_roast
 from web_admin import log_event
 
@@ -23,7 +23,7 @@ class RoastCog(commands.Cog):
 
     @tasks.loop(time=datetime.time(hour=9, minute=0, tzinfo=ZoneInfo("America/New_York")))
     async def scheduled_roast(self):
-        today = datetime.datetime.now(datetime.timezone.utc).weekday()
+        today = datetime.datetime.now(ZoneInfo("America/New_York")).weekday()
         guild_channels = shared._get_guild_channels()
         for gid, channel in guild_channels:
             if today == 0:
@@ -39,7 +39,7 @@ class RoastCog(commands.Cog):
 
     @tasks.loop(time=datetime.time(hour=21, minute=0, tzinfo=ZoneInfo("America/New_York")))
     async def weekly_recap(self):
-        today = datetime.datetime.now(datetime.timezone.utc).weekday()
+        today = datetime.datetime.now(ZoneInfo("America/New_York")).weekday()
         if today != 6:  # Sunday only
             return
 
