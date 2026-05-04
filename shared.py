@@ -939,7 +939,7 @@ def init_market(eco):
 
 
 def apply_price_impact(eco, ticker, shares, direction):
-    outstanding = MARKET_STOCKS[ticker]["shares_outstanding"]
+    outstanding = (MARKET_STOCKS.get(ticker) or _TARGET_STOCK_DEFAULTS)["shares_outstanding"]
     impact_pct = (shares / outstanding) * 15.0 * direction
     old = eco["market"][ticker]["price"]
     _apply_price_event(eco["market"][ticker], old * (1 + impact_pct / 100))
@@ -989,7 +989,7 @@ def execute_market_sell(eco, uid, ticker, shares):
 
 def execute_open_short(eco, uid, ticker, shares):
     uid = str(uid)
-    if not MARKET_STOCKS[ticker]["shortable"]:
+    if not (MARKET_STOCKS.get(ticker) or _TARGET_STOCK_DEFAULTS)["shortable"]:
         return False, f"**${ticker}** cannot be shorted."
     price = eco["market"][ticker]["price"]
     collateral = round(price * shares * 1.25, 2)
