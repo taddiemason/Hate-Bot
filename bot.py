@@ -1,5 +1,6 @@
 import os
 import asyncio
+import traceback
 import aiohttp.web
 from dotenv import load_dotenv
 
@@ -30,6 +31,11 @@ _admin_server_started = False
 _tts_worker_started = False
 
 _RESTART_DELAY = 30  # seconds between crash restarts
+
+
+def _tail(text: str, limit: int = 4000) -> str:
+    """Keep log payloads compact enough for the admin log sink."""
+    return text if len(text) <= limit else f"...{text[-limit:]}"
 
 
 async def _start_admin_server():
@@ -97,10 +103,19 @@ async def on_command_error(ctx, error):
 
 @bot.event
 async def on_error(event: str, *args, **kwargs):
-    import traceback
     tb = traceback.format_exc()
     print(f"[ERROR] Unhandled exception in event '{event}':\n{tb}")
-    log_event("ERROR", f"Unhandled exception in event '{event}': {tb.splitlines()[-1]}")
+    log_event("ERROR", f"Unhandled exception in event '{event}':\n{_tail(tb)}")
+
+
+@bot.event
+async def on_shard_disconnect(shard_id):
+    log_event("WARN", f"Shard {shard_id} disconnected (waiting for automatic reconnect)")
+
+
+@bot.event
+async def on_shard_resumed(shard_id):
+    log_event("INFO", f"Shard {shard_id} resumed")
 
 
 async def main():
@@ -108,6 +123,20 @@ async def main():
     if not token:
         log_event("ERROR", "DISCORD_TOKEN is not set; shutting down")
         return
+
+    loop = asyncio.get_running_loop()
+
+    def _loop_exception_handler(loop, context):
+        msg = context.get("message", "Unhandled asyncio loop exception")
+        exc = context.get("exception")
+        tb = ""
+        if exc:
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        elif context.get("future"):
+            tb = repr(context["future"])
+        log_event("ERROR", f"{msg}\n{_tail(tb)}")
+
+    loop.set_exception_handler(_loop_exception_handler)
 
     while True:
         try:
@@ -119,9 +148,8 @@ async def main():
         except KeyboardInterrupt:
             break
         except Exception as e:
-            import traceback
             tb = traceback.format_exc()
-            log_event("ERROR", f"Bot crashed: {e} — restarting in {_RESTART_DELAY}s\n{tb.splitlines()[-1]}")
+            log_event("ERROR", f"Bot crashed: {e} — restarting in {_RESTART_DELAY}s\n{_tail(tb)}")
             await asyncio.sleep(_RESTART_DELAY)
 
 
