@@ -19,9 +19,11 @@ intents.presences = True
 
 class HateBot(commands.Bot):
     async def setup_hook(self):
-        # Load extensions once at startup; reloading on every READY can cause instability.
         for ext in ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.admin"):
-            await self.load_extension(ext)
+            try:
+                await self.load_extension(ext)
+            except commands.ExtensionAlreadyLoaded:
+                await self.reload_extension(ext)
 
 
 bot = HateBot(command_prefix="!", intents=intents)

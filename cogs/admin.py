@@ -12,6 +12,15 @@ from shared import (
 )
 from web_admin import log_event
 
+
+async def _admin_or_owner(ctx):
+    if await ctx.bot.is_owner(ctx.author):
+        return True
+    if ctx.guild and ctx.author.guild_permissions.administrator:
+        return True
+    raise commands.MissingPermissions(["administrator"])
+
+
 class AdminCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -167,7 +176,7 @@ class AdminCog(commands.Cog):
 
 
     @commands.command(name="update")
-    @commands.has_permissions(administrator=True)
+    @commands.check(_admin_or_owner)
     async def update_bot(self, ctx):
         await ctx.send("⬇️ Pulling latest changes...")
         result = subprocess.run(["git", "pull", "origin", "Main"], capture_output=True, text=True)
