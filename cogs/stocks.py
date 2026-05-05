@@ -218,6 +218,16 @@ class StocksCog(commands.Cog):
                             payout = round(shares_held * last_price)
                             eco["balances"][uid] = eco.get("balances", {}).get(uid, 0) + payout
                             port.pop(ticker, None)
+                    for uid, shorts in list(eco.get("short_positions", {}).items()):
+                        pos = shorts.get(ticker)
+                        if not pos:
+                            continue
+                        pnl = round((pos["avg_price"] - last_price) * pos["shares"], 2)
+                        returned = max(round(pos["collateral"] + pnl, 2), 0)
+                        eco["balances"][uid] = eco.get("balances", {}).get(uid, 0) + returned
+                        del shorts[ticker]
+                        if not shorts:
+                            del eco["short_positions"][uid]
                     eco["market"].pop(ticker, None)
                 # Drop from target_history (don't keep in still_active)
             eco["target_history"][gid_str] = still_active
@@ -317,7 +327,10 @@ class StocksCog(commands.Cog):
         for ticker in (tickers_shuffled if now_est.hour >= 9 else []):
             if random.random() > 0.016:
                 continue
-            event = random.choice(shared._STOCK_NEWS[ticker])
+            news_pool = shared._STOCK_NEWS.get(ticker)
+            if not news_pool:
+                continue
+            event = random.choice(news_pool)
             headline = event["headline"]
 
             impact_pct = random.uniform(*event["impact"])
@@ -452,6 +465,8 @@ class StocksCog(commands.Cog):
         for uid, positions in list(eco.get("short_positions", {}).items()):
             for ticker in list(positions.keys()):
                 pos = positions[ticker]
+                if ticker not in eco.get("market", {}):
+                    continue
                 price = eco["market"][ticker]["price"]
                 loss = (price - pos["avg_price"]) * pos["shares"]
                 loss_pct = loss / pos["collateral"] if pos["collateral"] else 0

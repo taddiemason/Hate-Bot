@@ -1066,6 +1066,9 @@ async def settle_expired_futures(eco, channel):
             if now < datetime.datetime.fromisoformat(pos["expiry"]):
                 remaining.append(pos)
                 continue
+            if pos["ticker"] not in eco.get("market", {}):
+                eco["balances"][uid] = eco["balances"].get(uid, 0) + pos.get("margin", 0)
+                continue
             price = eco["market"][pos["ticker"]]["price"]
             pnl = (price - pos["entry_price"]) * pos["contracts"] if pos["direction"] == "long" \
                 else (pos["entry_price"] - price) * pos["contracts"]
@@ -1092,6 +1095,8 @@ async def expire_options(eco, channel):
                 continue
             if now < datetime.datetime.fromisoformat(opt["expiry"]):
                 remaining.append(opt)
+                continue
+            if opt["ticker"] not in eco.get("market", {}):
                 continue
             price = eco["market"][opt["ticker"]]["price"]
             intrinsic = (price - opt["strike"]) * opt["contracts"] if opt["option_type"] == "call" \
