@@ -21,7 +21,9 @@ import sqlite3
 import threading
 import datetime
 
-DB_PATH = os.getenv("DB_PATH", "hatebot.db")
+DB_PATH = os.getenv("DB_PATH") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "hatebot.db")
+DB_PATH = os.path.abspath(DB_PATH)
+os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
 _lock = threading.Lock()
 
