@@ -1,5 +1,6 @@
 import os
 import asyncio
+import datetime
 import math
 import traceback
 import aiohttp.web
@@ -91,6 +92,7 @@ async def on_ready():
     global _admin_server_started, _tts_worker_started, _watchdog_task
     init_db()
     shared.set_bot(bot)
+    bot._online_since = datetime.datetime.now(datetime.timezone.utc)
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
     log_event("INFO", f"Bot online: {bot.user} (ID: {bot.user.id}) — {len(bot.guilds)} guild(s)")
 
