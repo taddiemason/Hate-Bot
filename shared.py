@@ -21,6 +21,7 @@ def set_bot(b):
 groq_client = AsyncOpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1",
+    timeout=20.0,
 )
 
 TARGET_NAME = os.getenv("TARGET_NAME", "Donovan")
@@ -1991,16 +1992,20 @@ async def tts_worker():
 
             with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
                 tmp_path = f.name
-            await asyncio.to_thread(gTTS(text=text, lang="en").save, tmp_path)
+            await asyncio.wait_for(
+                asyncio.to_thread(gTTS(text=text, lang="en").save, tmp_path),
+                timeout=15.0,
+            )
 
             vc = guild.voice_client
             if vc and vc.is_connected():
                 await vc.move_to(channel)
             else:
-                vc = await channel.connect()
+                vc = await asyncio.wait_for(channel.connect(), timeout=15.0)
 
             vc.play(discord.FFmpegPCMAudio(tmp_path))
-            while vc.is_playing():
+            deadline = asyncio.get_event_loop().time() + 120
+            while vc.is_playing() and asyncio.get_event_loop().time() < deadline:
                 await asyncio.sleep(0.5)
 
             if tts_queue.empty():
