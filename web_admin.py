@@ -207,6 +207,69 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 f"<td>{price:.2f}</td></tr>"
             )
 
+        # ── Bot health ────────────────────────────────────────────────────────
+        is_ready = bot.is_ready()
+        latency = bot.latency
+        import math as _math
+        if not is_ready:
+            status_html = '<span class="red" style="font-size:1.1em">&#9679;</span> <b class="red">Offline</b>'
+            latency_html = '<span class="muted">—</span>'
+        elif _math.isnan(latency):
+            status_html = '<span class="yellow" style="font-size:1.1em">&#9679;</span> <b class="yellow">No heartbeat</b>'
+            latency_html = '<span class="red">nan</span>'
+        elif latency > 5.0:
+            status_html = '<span class="yellow" style="font-size:1.1em">&#9679;</span> <b class="yellow">Degraded</b>'
+            latency_html = f'<span class="red">{latency * 1000:.0f} ms</span>'
+        else:
+            status_html = '<span class="green" style="font-size:1.1em">&#9679;</span> <b class="green">Online</b>'
+            latency_html = f'<span class="green">{latency * 1000:.0f} ms</span>'
+
+        online_since = getattr(bot, "_online_since", None)
+        if online_since:
+            up_secs = int((now - online_since).total_seconds())
+            up_d, up_rem = divmod(up_secs, 86400)
+            up_h, up_rem = divmod(up_rem, 3600)
+            up_m = up_rem // 60
+            if up_d:
+                uptime_str = f"{up_d}d {up_h}h {up_m}m"
+            elif up_h:
+                uptime_str = f"{up_h}h {up_m}m"
+            else:
+                uptime_str = f"{up_m}m"
+            uptime_html = f'{uptime_str} <span class="muted">(since {online_since.strftime("%Y-%m-%d %H:%M")} UTC)</span>'
+        else:
+            uptime_html = '<span class="muted">unknown</span>'
+
+        guild_rows = "".join(
+            f"<tr><td>{html.escape(g.name)}</td>"
+            f"<td class='muted' style='font-size:.8em'>{g.id}</td>"
+            f"<td>{g.member_count}</td></tr>"
+            for g in sorted(bot.guilds, key=lambda g: g.name)
+        )
+
+        health_panel = f"""
+<div class="panel" style="margin-bottom:20px">
+  <h2 style="margin-top:0;margin-bottom:12px">Bot Health</h2>
+  <div style="display:flex;gap:32px;flex-wrap:wrap;align-items:flex-start">
+    <div>
+      <div class="label" style="margin-bottom:4px">Status</div>
+      <div style="font-size:1em">{status_html}</div>
+    </div>
+    <div>
+      <div class="label" style="margin-bottom:4px">Gateway latency</div>
+      <div style="font-size:1em">{latency_html}</div>
+    </div>
+    <div>
+      <div class="label" style="margin-bottom:4px">Uptime</div>
+      <div style="font-size:.9em">{uptime_html}</div>
+    </div>
+  </div>
+  <table style="margin-top:14px;width:auto;min-width:320px">
+    <thead><tr><th>Guild</th><th>ID</th><th>Members</th></tr></thead>
+    <tbody>{guild_rows}</tbody>
+  </table>
+</div>"""
+
         guild_targets = eco.get("guild_targets", {})
         target_forms = ""
         for guild in sorted(bot.guilds, key=lambda g: g.name):
@@ -242,6 +305,7 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
 
         body = f"""
 {msg}
+{health_panel}
 <div class="cards">
   <div class="card"><div class="val">{len(balances)}</div><div class="label">Users</div></div>
   <div class="card"><div class="val">{total_coins:,.0f}</div><div class="label">Coins in circulation</div></div>
