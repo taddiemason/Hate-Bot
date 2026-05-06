@@ -1,5 +1,6 @@
 import os
 import asyncio
+import math
 import traceback
 import aiohttp.web
 from dotenv import load_dotenv
@@ -31,8 +32,11 @@ shared.set_bot(bot)
 
 _admin_server_started = False
 _tts_worker_started = False
+_watchdog_task: asyncio.Task | None = None
 
 _RESTART_DELAY = 30  # seconds between crash restarts
+_WATCHDOG_INTERVAL = 60  # seconds between connection health checks
+_WATCHDOG_LATENCY_LIMIT = 30.0  # seconds; force reconnect above this
 
 
 def _tail(text: str, limit: int = 4000) -> str:
@@ -60,9 +64,31 @@ async def _start_admin_server():
     print("Admin dashboard failed to start: no available port in range 47832-47841")
 
 
+async def _connection_watchdog():
+    """Detect zombie connections and force a clean reconnect when needed.
+
+    Discord sessions can silently stall after a resume: the gateway appears
+    alive but heartbeat ACKs stop arriving, causing bot.latency to become nan.
+    Closing the bot here lets the outer restart loop bring it back cleanly.
+    """
+    await asyncio.sleep(30)  # let the connection stabilize after on_ready
+    while not bot.is_closed():
+        await asyncio.sleep(_WATCHDOG_INTERVAL)
+        if bot.is_closed() or not bot.is_ready():
+            continue
+        latency = bot.latency
+        if math.isnan(latency) or latency > _WATCHDOG_LATENCY_LIMIT:
+            log_event(
+                "WARN",
+                f"Watchdog: unhealthy connection (latency={latency!r}s) — forcing reconnect",
+            )
+            await bot.close()
+            return
+
+
 @bot.event
 async def on_ready():
-    global _admin_server_started, _tts_worker_started
+    global _admin_server_started, _tts_worker_started, _watchdog_task
     init_db()
     shared.set_bot(bot)
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -80,10 +106,16 @@ async def on_ready():
     if not _admin_server_started:
         asyncio.create_task(_start_admin_server())
 
+    # (Re)start watchdog on every on_ready so it always reflects the live connection.
+    if _watchdog_task and not _watchdog_task.done():
+        _watchdog_task.cancel()
+    _watchdog_task = asyncio.create_task(_connection_watchdog())
+
 
 @bot.event
 async def on_resumed():
-    log_event("INFO", "Bot reconnected to Discord (session resumed)")
+    latency = bot.latency
+    log_event("INFO", f"Bot reconnected to Discord (session resumed, latency={latency:.3f}s)")
 
 
 @bot.event
