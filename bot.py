@@ -34,6 +34,8 @@ shared.set_bot(bot)
 _admin_server_started = False
 _tts_worker_started = False
 _watchdog_task: asyncio.Task | None = None
+_loop_exc_last: dict[str, float] = {}
+_LOOP_EXC_COOLDOWN = 5.0  # seconds between identical loop exception log entries
 
 _RESTART_DELAY = 30  # seconds between crash restarts
 _WATCHDOG_INTERVAL = 60  # seconds between connection health checks
@@ -130,8 +132,10 @@ async def on_disconnect():
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
+    if isinstance(error, commands.CheckFailure):
+        await ctx.send("❌ You don't have permission to use this command.")
+        return
     print(f"[ERROR] Command '{ctx.command}' raised: {error}")
-    import traceback
     traceback.print_exception(type(error), error, error.__traceback__)
     log_event("ERROR", f"Command '{ctx.command}' in #{getattr(ctx.channel, 'name', '?')} raised: {error}")
     await ctx.send(f"❌ Command error: `{error}`")
@@ -163,6 +167,7 @@ async def main():
     loop = asyncio.get_running_loop()
 
     def _loop_exception_handler(loop, context):
+        import time
         msg = context.get("message", "Unhandled asyncio loop exception")
         exc = context.get("exception")
         tb = ""
@@ -170,6 +175,11 @@ async def main():
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         elif context.get("future"):
             tb = repr(context["future"])
+        key = f"{msg}:{type(exc).__name__ if exc else ''}"
+        now = time.monotonic()
+        if now - _loop_exc_last.get(key, 0) < _LOOP_EXC_COOLDOWN:
+            return
+        _loop_exc_last[key] = now
         log_event("ERROR", f"{msg}\n{_tail(tb)}")
 
     loop.set_exception_handler(_loop_exception_handler)
