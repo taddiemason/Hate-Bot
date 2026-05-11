@@ -39,6 +39,7 @@ _LOOP_EXC_COOLDOWN = 5.0  # seconds between identical loop exception log entries
 _RESTART_DELAY = 30  # seconds between crash restarts
 _WATCHDOG_INTERVAL = 60  # seconds between connection health checks
 _WATCHDOG_LATENCY_LIMIT = 30.0  # seconds; force reconnect above this
+_WATCHDOG_DISCONNECT_LIMIT = 300  # seconds offline before forcing a full restart
 
 
 def _tail(text: str, limit: int = 4000) -> str:
@@ -69,26 +70,44 @@ async def _start_admin_server(bot):
 async def _connection_watchdog(bot):
     """Detect zombie connections and force a clean reconnect when needed.
 
-    Discord sessions can silently stall after a resume: the gateway appears
-    alive but heartbeat ACKs stop arriving, causing bot.latency to become nan.
-    Closing the bot here lets the outer restart loop bring it back cleanly.
+    Two failure modes are handled:
+      1. Zombie session: gateway looks alive but heartbeat ACKs stop arriving
+         (bot.latency becomes nan or huge).
+      2. Stuck auto-reconnect: discord.py's internal reconnect loop silently
+         stalls after on_disconnect and never reaches on_ready again. Without
+         escalation the bot sits offline until manually restarted.
+    Closing the bot lets the outer restart loop bring it back cleanly.
     """
+    async def _force_close(reason: str):
+        log_event("WARN", f"Watchdog: {reason} — forcing reconnect")
+        try:
+            await bot.close()
+        except Exception as e:
+            log_event("WARN", f"Watchdog: error during forced close: {e!r}")
+
     try:
         await asyncio.sleep(30)  # let the connection stabilize after on_ready
         while not bot.is_closed():
             await asyncio.sleep(_WATCHDOG_INTERVAL)
-            if bot.is_closed() or not bot.is_ready():
+            if bot.is_closed():
                 continue
+
+            if not bot.is_ready():
+                disc_since = getattr(bot, "_disconnected_since", None)
+                if disc_since is None:
+                    # Not ready and no disconnect timestamp yet — treat now as
+                    # the start so an extended startup stall still escalates.
+                    bot._disconnected_since = datetime.datetime.now(datetime.timezone.utc)
+                    continue
+                elapsed = (datetime.datetime.now(datetime.timezone.utc) - disc_since).total_seconds()
+                if elapsed > _WATCHDOG_DISCONNECT_LIMIT:
+                    await _force_close(f"offline for {elapsed:.0f}s with no reconnect")
+                    return
+                continue
+
             latency = bot.latency
             if math.isnan(latency) or latency > _WATCHDOG_LATENCY_LIMIT:
-                log_event(
-                    "WARN",
-                    f"Watchdog: unhealthy connection (latency={latency!r}s) — forcing reconnect",
-                )
-                try:
-                    await bot.close()
-                except Exception as e:
-                    log_event("WARN", f"Watchdog: error during forced close: {e!r}")
+                await _force_close(f"unhealthy connection (latency={latency!r}s)")
                 return
     except asyncio.CancelledError:
         raise
@@ -103,6 +122,7 @@ def _register_events(bot):
         init_db()
         shared.set_bot(bot)
         bot._online_since = datetime.datetime.now(datetime.timezone.utc)
+        bot._disconnected_since = None
         print(f"Logged in as {bot.user} (ID: {bot.user.id})")
         log_event("INFO", f"Bot online: {bot.user} (ID: {bot.user.id}) — {len(bot.guilds)} guild(s)")
 
@@ -126,11 +146,17 @@ def _register_events(bot):
 
     @bot.event
     async def on_resumed():
+        bot._disconnected_since = None
         latency = bot.latency
         log_event("INFO", f"Bot reconnected to Discord (session resumed, latency={latency:.3f}s)")
 
     @bot.event
     async def on_disconnect():
+        # discord.py can fire on_disconnect multiple times for the same drop
+        # (socket close + heartbeat timeout). Only log/timestamp the first.
+        if getattr(bot, "_disconnected_since", None) is not None:
+            return
+        bot._disconnected_since = datetime.datetime.now(datetime.timezone.utc)
         log_event("WARN", "Bot disconnected from Discord (waiting for automatic reconnect)")
 
     @bot.event
