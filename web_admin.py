@@ -211,8 +211,19 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         is_ready = bot.is_ready()
         latency = bot.latency
         import math as _math
+        disconnected_since = getattr(bot, "_disconnected_since", None)
         if not is_ready:
-            status_html = '<span class="red" style="font-size:1.1em">&#9679;</span> <b class="red">Offline</b>'
+            if disconnected_since:
+                off_secs = int((now - disconnected_since).total_seconds())
+                off_m, off_s = divmod(off_secs, 60)
+                off_str = f"{off_m}m {off_s}s" if off_m else f"{off_s}s"
+                status_html = (
+                    f'<span class="yellow" style="font-size:1.1em">&#9679;</span> '
+                    f'<b class="yellow">Reconnecting</b> '
+                    f'<span class="muted" style="font-size:.85em">({off_str})</span>'
+                )
+            else:
+                status_html = '<span class="red" style="font-size:1.1em">&#9679;</span> <b class="red">Offline</b>'
             latency_html = '<span class="muted">—</span>'
         elif _math.isnan(latency):
             status_html = '<span class="yellow" style="font-size:1.1em">&#9679;</span> <b class="yellow">No heartbeat</b>'
