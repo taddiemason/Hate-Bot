@@ -21,6 +21,7 @@ import shutil
 import sqlite3
 import threading
 import datetime
+from contextlib import contextmanager
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -87,11 +88,21 @@ _DEFAULT_ECONOMY = {
 }
 
 
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
+    # sqlite3.Connection's own context manager only commits/rollbacks — it does
+    # NOT close the connection. Without closing, every call leaks fds (db +
+    # -wal + -shm in WAL mode), eventually hitting the EMFILE limit and
+    # preventing even Python source imports. Wrap connect/close here so call
+    # sites keep using `with _conn() as c:`.
     c = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA synchronous=NORMAL")
-    return c
+    try:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def init_db() -> None:
