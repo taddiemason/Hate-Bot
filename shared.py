@@ -941,7 +941,7 @@ def init_market(eco):
 
 def apply_price_impact(eco, ticker, shares, direction):
     outstanding = (MARKET_STOCKS.get(ticker) or _TARGET_STOCK_DEFAULTS)["shares_outstanding"]
-    impact_pct = (shares / outstanding) * 15.0 * direction
+    impact_pct = max(-15.0, min(15.0, (shares / outstanding) * 15.0 * direction))
     old = eco["market"][ticker]["price"]
     _apply_price_event(eco["market"][ticker], old * (1 + impact_pct / 100))
     eco["market"][ticker]["volume_today"] = eco["market"][ticker].get("volume_today", 0) + shares
