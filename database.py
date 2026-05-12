@@ -17,13 +17,58 @@ Public API (same signatures as the original bot.py helpers):
 
 import os
 import json
+import shutil
 import sqlite3
 import threading
 import datetime
 
-DB_PATH = os.getenv("DB_PATH") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "hatebot.db")
-DB_PATH = os.path.abspath(DB_PATH)
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def _writable_dir(path: str) -> bool:
+    """True if `path` is an existing directory we can write into.
+
+    SQLite in WAL mode needs to create -wal and -shm sidecar files alongside
+    the database, so the directory itself must be writable — not just the
+    database file. os.access checks the effective UID, which is what
+    sqlite3 will use.
+    """
+    return os.path.isdir(path) and os.access(path, os.W_OK | os.X_OK)
+
+
+def _resolve_db_path() -> str:
+    env = os.getenv("DB_PATH")
+    if env:
+        return os.path.abspath(os.path.expanduser(env))
+
+    primary = os.path.join(_HERE, "hatebot.db")
+    if _writable_dir(_HERE):
+        return primary
+
+    # The install directory isn't writable by the bot's runtime user (common
+    # when setup.sh was run with sudo, or the repo is owned by a different
+    # account than the systemd User=). Fall back to a per-user data dir.
+    xdg = os.getenv("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+    fallback_dir = os.path.join(xdg, "hatebot")
+    os.makedirs(fallback_dir, exist_ok=True)
+    fallback = os.path.join(fallback_dir, "hatebot.db")
+
+    if os.path.exists(primary) and not os.path.exists(fallback):
+        try:
+            shutil.copy2(primary, fallback)
+        except OSError as e:
+            print(f"[database] WARN: couldn't migrate {primary} -> {fallback}: {e}")
+    return fallback
+
+
+DB_PATH = _resolve_db_path()
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+if not _writable_dir(os.path.dirname(DB_PATH)):
+    raise RuntimeError(
+        f"Database directory is not writable: {os.path.dirname(DB_PATH)!r}. "
+        "Set DB_PATH to a writable location, or fix permissions on the install directory."
+    )
+print(f"[database] Using DB at {DB_PATH}")
 
 _lock = threading.Lock()
 
