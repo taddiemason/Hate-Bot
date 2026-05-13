@@ -108,13 +108,13 @@ class RoastCog(commands.Cog):
                     mname = member.display_name if member else "Unknown"
                     val = shared.get_portfolio_value(eco2, uid)
                     medal = ["🥇", "🥈", "🥉", "4.", "5."][i - 1]
-                    lines.append(f"{medal} **{mname}** — {val:.0f} coins")
+                    lines.append(f"{medal} **{mname}** — {val:,.0f} coins")
                 if len(ranked) > 1:
                     loser_uid = ranked[-1]
                     loser = channel.guild.get_member(int(loser_uid))
                     loser_name = loser.display_name if loser else "Unknown"
                     loser_val = shared.get_portfolio_value(eco2, loser_uid)
-                    lines.append(f"\n💀 Biggest loser: **{loser_name}** — {loser_val:.0f} coins")
+                    lines.append(f"\n💀 Biggest loser: **{loser_name}** — {loser_val:,.0f} coins")
                 await channel.send("\n".join(lines))
 
             # Lottery result
@@ -124,7 +124,7 @@ class RoastCog(commands.Cog):
                 await channel.send(
                     f"🎟️ **WEEKLY LOTTERY DRAWING!**\n\n"
                     f"Out of {len(pool)} tickets...\n"
-                    f"🏆 **{winner_display}** wins the **{pot} coin** pot!\n"
+                    f"🏆 **{winner_display}** wins the **{pot:,} coin** pot!\n"
                     f"New lottery starts now. Buy tickets with `!lottery <amount>`."
                 )
             else:
@@ -177,12 +177,12 @@ class RoastCog(commands.Cog):
                     else:
                         bet = game["bet"]
                         del shared.highlow_games[message.author.id]
-                        await message.channel.send(f"❌ **{new_num}!** Wrong! You lost **{bet} coins**.")
+                        await message.channel.send(f"❌ **{new_num}!** Wrong! You lost **{bet:,} coins**.")
                 elif content == "cashout":
                     winnings = round(game["bet"] * game["multiplier"])
                     shared.add_coins(message.author.id, winnings)
                     del shared.highlow_games[message.author.id]
-                    await message.channel.send(f"💰 Cashed out at **{game['multiplier']}x**! You won **{winnings} coins**!")
+                    await message.channel.send(f"💰 Cashed out at **{game['multiplier']}x**! You won **{winnings:,} coins**!")
 
         # Guess the roast answer check
         if shared.guessroast_active and not message.author.bot:
@@ -395,7 +395,7 @@ class RoastCog(commands.Cog):
                 bounty_total = claim_bounties(message.author.id)
                 if bounty_total > 0:
                     shared.add_coins(message.author.id, bounty_total)
-                    await message.channel.send(f"💰 {message.author.mention} collected **{bounty_total} Roast Coins** in active bounties!")
+                    await message.channel.send(f"💰 {message.author.mention} collected **{bounty_total:,} Roast Coins** in active bounties!")
 
                 count = load_count() + 1
                 save_count(count)
@@ -418,7 +418,7 @@ class RoastCog(commands.Cog):
                     log_event("EVENT", f"Server milestone reached: {count} roasts — +{bonus} coins paid to all members")
                     await message.channel.send(
                         f"🎉 **SERVER MILESTONE: {count} total roasts!**\n"
-                        f"Everyone gets **+{bonus} Roast Coins** for their dedication to roasting {tgt_name}!"
+                        f"Everyone gets **+{bonus:,} Roast Coins** for their dedication to roasting {tgt_name}!"
                     )
             except Exception as e:
                 import traceback

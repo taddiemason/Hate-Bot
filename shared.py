@@ -954,7 +954,7 @@ def execute_market_buy(eco, uid, ticker, shares):
     cost = round(price * shares, 2)
     bal = eco["balances"].get(uid, 0)
     if bal < cost:
-        return False, f"Not enough coins. Need **{cost:.0f}**, have **{bal}**."
+        return False, f"Not enough coins. Need **{cost:,.0f}**, have **{bal:,}**."
     eco["balances"][uid] = bal - cost
     apply_price_impact(eco, ticker, shares, +1)
     new_price = eco["market"][ticker]["price"]
@@ -966,7 +966,7 @@ def execute_market_buy(eco, uid, ticker, shares):
         port[ticker]["avg_cost"] = round(total_cost / total_shares, 2)
     else:
         port[ticker] = {"shares": shares, "avg_cost": price}
-    return True, f"Bought **{shares}** shares of **${ticker}** at **${price:.2f}** each. Cost: **{cost:.0f} coins**. New price: **${new_price:.2f}**"
+    return True, f"Bought **{shares:,}** shares of **${ticker}** at **${price:,.2f}** each. Cost: **{cost:,.0f} coins**. New price: **${new_price:,.2f}**"
 
 
 def execute_market_sell(eco, uid, ticker, shares):
@@ -974,7 +974,7 @@ def execute_market_sell(eco, uid, ticker, shares):
     port = eco.get("portfolios", {}).get(uid, {})
     held = port.get(ticker, {}).get("shares", 0)
     if held < shares:
-        return False, f"You only own **{held}** shares of **${ticker}**."
+        return False, f"You only own **{held:,}** shares of **${ticker}**."
     price = eco["market"][ticker]["price"]
     proceeds = round(price * shares, 2)
     avg_cost = port[ticker]["avg_cost"]
@@ -985,7 +985,7 @@ def execute_market_sell(eco, uid, ticker, shares):
     port[ticker]["shares"] -= shares
     if port[ticker]["shares"] == 0:
         del port[ticker]
-    return True, f"Sold **{shares}** shares of **${ticker}** at **${price:.2f}**. Proceeds: **{proceeds:.0f} coins** (P&L: **{_fmt_pnl(pnl)}**). New price: **${new_price:.2f}**"
+    return True, f"Sold **{shares:,}** shares of **${ticker}** at **${price:,.2f}**. Proceeds: **{proceeds:,.0f} coins** (P&L: **{_fmt_pnl(pnl)}**). New price: **${new_price:,.2f}**"
 
 
 def execute_open_short(eco, uid, ticker, shares):
@@ -996,7 +996,7 @@ def execute_open_short(eco, uid, ticker, shares):
     collateral = round(price * shares * 1.25, 2)
     bal = eco["balances"].get(uid, 0)
     if bal < collateral:
-        return False, f"Need **{collateral:.0f} coins** collateral (125% of position). You have **{bal}**."
+        return False, f"Need **{collateral:,.0f} coins** collateral (125% of position). You have **{bal:,}**."
     eco["balances"][uid] = bal - collateral
     apply_price_impact(eco, ticker, shares, -1)
     new_price = eco["market"][ticker]["price"]
@@ -1009,7 +1009,7 @@ def execute_open_short(eco, uid, ticker, shares):
         shorts[ticker]["collateral"] = round(shorts[ticker]["collateral"] + collateral, 2)
     else:
         shorts[ticker] = {"shares": shares, "avg_price": price, "collateral": collateral}
-    return True, f"⬇️ Shorted **{shares}** shares of **${ticker}** at **${price:.2f}**. Collateral held: **{collateral:.0f} coins**. New price: **${new_price:.2f}**"
+    return True, f"⬇️ Shorted **{shares:,}** shares of **${ticker}** at **${price:,.2f}**. Collateral held: **{collateral:,.0f} coins**. New price: **${new_price:,.2f}**"
 
 
 def execute_close_short(eco, uid, ticker, shares):
@@ -1017,7 +1017,7 @@ def execute_close_short(eco, uid, ticker, shares):
     shorts = eco.get("short_positions", {}).get(uid, {})
     held = shorts.get(ticker, {}).get("shares", 0)
     if held < shares:
-        return False, f"You only have **{held}** shares shorted on **${ticker}**."
+        return False, f"You only have **{held:,}** shares shorted on **${ticker}**."
     pos = shorts[ticker]
     price = eco["market"][ticker]["price"]
     frac = shares / pos["shares"]
@@ -1031,7 +1031,7 @@ def execute_close_short(eco, uid, ticker, shares):
     pos["collateral"] = round(pos["collateral"] - collateral_back, 2)
     if pos["shares"] == 0:
         del shorts[ticker]
-    return True, f"Covered **{shares}** shares of **${ticker}** at **${price:.2f}**. P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returns:.0f} coins**. New price: **${new_price:.2f}**"
+    return True, f"Covered **{shares:,}** shares of **${ticker}** at **${price:,.2f}**. P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returns:,.0f} coins**. New price: **${new_price:,.2f}**"
 
 
 def get_portfolio_value(eco, uid):
@@ -1081,8 +1081,8 @@ async def settle_expired_futures(eco, channel):
                 mention = member.mention if member else f"<@{uid}>"
                 await channel.send(
                     f"📅 {mention} Futures **#{pos['id']}** settled: "
-                    f"**{pos['direction'].upper()} {pos['contracts']} ${pos['ticker']}** "
-                    f"${pos['entry_price']:.2f} → ${price:.2f} | P&L: **{_fmt_pnl(pnl)}** | Returned: **{returned:.0f} coins**"
+                    f"**{pos['direction'].upper()} {pos['contracts']:,} ${pos['ticker']}** "
+                    f"${pos['entry_price']:,.2f} → ${price:,.2f} | P&L: **{_fmt_pnl(pnl)}** | Returned: **{returned:,.0f} coins**"
                 )
         eco["futures"][uid] = remaining
 
@@ -1105,7 +1105,7 @@ async def expire_options(eco, channel):
             if intrinsic > 0:
                 payout = round(intrinsic, 2)
                 eco["balances"][uid] = eco["balances"].get(uid, 0) + payout
-                result = f"auto-exercised ✅ payout: **{payout:.0f} coins**"
+                result = f"auto-exercised ✅ payout: **{payout:,.0f} coins**"
             else:
                 result = "expired worthless 💀"
             if channel:
@@ -1113,7 +1113,7 @@ async def expire_options(eco, channel):
                 mention = member.mention if member else f"<@{uid}>"
                 await channel.send(
                     f"📅 {mention} Option **#{opt['id']}** "
-                    f"({opt['option_type'].upper()} ${opt['ticker']} strike ${opt['strike']:.2f}) {result}"
+                    f"({opt['option_type'].upper()} ${opt['ticker']} strike ${opt['strike']:,.2f}) {result}"
                 )
         eco["options"][uid] = remaining
 
@@ -1303,7 +1303,7 @@ def is_insurance_active():
 
 def _fmt_pnl(pnl: float) -> str:
     """Format a P&L value with a leading + when positive."""
-    return f"+{pnl:.0f}" if pnl >= 0 else str(round(pnl))
+    return f"+{pnl:,.0f}" if pnl >= 0 else f"{round(pnl):,}"
 
 
 def resolve_member_name(uid: int, primary_guild) -> str:

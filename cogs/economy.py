@@ -64,7 +64,7 @@ class EconomyCog(commands.Cog):
         streak_msg = f" 🔥 **{streak}-day streak** ({tier})" if streak > 1 else ""
         milestone_msg = f"\n{_MILESTONES[streak]}" if streak in _MILESTONES else ""
         double_msg = " 💰 **Weekend 2x active!**" if is_double_coin_day() else ""
-        await ctx.send(f"✅ Daily check-in! **+{reward} coins**{streak_msg}{double_msg}{milestone_msg}{jackpot_msg}")
+        await ctx.send(f"✅ Daily check-in! **+{reward:,} coins**{streak_msg}{double_msg}{milestone_msg}{jackpot_msg}")
 
 
 
@@ -90,14 +90,14 @@ class EconomyCog(commands.Cog):
             return
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
         result = random.choice(["heads", "tails"])
         if result == side:
             add_coins(ctx.author.id, amount * 2)
-            await ctx.send(f"🪙 **{result.upper()}!** You won **{amount} coins!**")
+            await ctx.send(f"🪙 **{result.upper()}!** You won **{amount:,} coins!**")
         else:
-            await ctx.send(f"🪙 **{result.upper()}!** You lost **{amount} coins**. Better luck next time.")
+            await ctx.send(f"🪙 **{result.upper()}!** You lost **{amount:,} coins**. Better luck next time.")
 
 
 
@@ -108,7 +108,7 @@ class EconomyCog(commands.Cog):
             return
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
         reels = [random.choice(shared.SLOT_SYMBOLS) for _ in range(3)]
         display = " | ".join(reels)
@@ -123,14 +123,14 @@ class EconomyCog(commands.Cog):
             winnings = amount * mult
             add_coins(ctx.author.id, winnings)
             try:
-                await ctx.send(f"🎰 [ {display} ]\n**{mult}x PAYOUT!** You won **{winnings} coins!**")
+                await ctx.send(f"🎰 [ {display} ]\n**{mult}x PAYOUT!** You won **{winnings:,} coins!**")
             except Exception:
                 add_coins(ctx.author.id, -winnings)
                 add_coins(ctx.author.id, amount)
                 raise
         else:
             try:
-                await ctx.send(f"🎰 [ {display} ]\nNo match. You lost **{amount} coins**.")
+                await ctx.send(f"🎰 [ {display} ]\nNo match. You lost **{amount:,} coins**.")
             except Exception:
                 add_coins(ctx.author.id, amount)
                 raise
@@ -169,15 +169,15 @@ class EconomyCog(commands.Cog):
 
         total = round(bal + portfolio + futures_pnl + options_value, 2)
         lines = [f"💰 **{target.display_name}**",
-                 f"Cash: **{bal} coins**"]
+                 f"Cash: **{bal:,} coins**"]
         if portfolio:
-            lines.append(f"Stocks/Shorts: **{portfolio:.0f} coins**")
+            lines.append(f"Stocks/Shorts: **{portfolio:,.0f} coins**")
         if futures_pnl:
-            pnl_str = f"+{futures_pnl:.0f}" if futures_pnl >= 0 else f"{futures_pnl:.0f}"
+            pnl_str = f"+{futures_pnl:,.0f}" if futures_pnl >= 0 else f"{futures_pnl:,.0f}"
             lines.append(f"Futures P&L: **{pnl_str} coins**")
         if options_value:
-            lines.append(f"Options Value: **{options_value:.0f} coins**")
-        lines.append(f"**Net Worth: {total:.0f} coins**")
+            lines.append(f"Options Value: **{options_value:,.0f} coins**")
+        lines.append(f"**Net Worth: {total:,.0f} coins**")
         await ctx.send("\n".join(lines))
 
 
@@ -219,9 +219,9 @@ class EconomyCog(commands.Cog):
             total = net_worth(uid)
             portfolio = round(total - cash)
             if portfolio:
-                lines.append(f"{i}. **{name}** — {total:.0f} coins net worth _(cash: {cash} + investments: {portfolio})_")
+                lines.append(f"{i}. **{name}** — {total:,.0f} coins net worth _(cash: {cash:,} + investments: {portfolio:,})_")
             else:
-                lines.append(f"{i}. **{name}** — {total:.0f} coins")
+                lines.append(f"{i}. **{name}** — {total:,.0f} coins")
         await ctx.send("💰 **Roast Coin Leaderboard** _(ranked by net worth)_\n" + "\n".join(lines))
 
 
@@ -240,7 +240,7 @@ class EconomyCog(commands.Cog):
                 continue
             desc_tmpl = shared._SHOP_ITEMS_TMPL.get(k, {}).get("description", shared.SHOP_ITEMS[k]["description"])
             desc = _t(desc_tmpl, gid)
-            lines.append(f"**{shared.SHOP_ITEMS[k]['name']}** (`{k}`) — {shared.SHOP_ITEMS[k]['cost']} coins\n_{desc}_")
+            lines.append(f"**{shared.SHOP_ITEMS[k]['name']}** (`{k}`) — {shared.SHOP_ITEMS[k]['cost']:,} coins\n_{desc}_")
         await ctx.send(
             f"🛒 **Roast Shop** — Today's Rotation _(refreshes in {hours_left}h {minutes_left}m)_\n\n"
             + "\n\n".join(lines)
@@ -261,7 +261,7 @@ class EconomyCog(commands.Cog):
         seconds_left = int((expires - now).total_seconds())
         hours_left = seconds_left // 3600
         minutes_left = (seconds_left % 3600) // 60
-        lines = [f"**{shared.SHOP_ITEMS[k]['name']}** (`{k}`) — {shared.SHOP_ITEMS[k]['cost']} coins"
+        lines = [f"**{shared.SHOP_ITEMS[k]['name']}** (`{k}`) — {shared.SHOP_ITEMS[k]['cost']:,} coins"
                  for k in rotation if k in shared.SHOP_ITEMS]
         await ctx.send(
             f"🔄 Shop rotation reset! New rotation (expires in {hours_left}h {minutes_left}m):\n"
@@ -282,7 +282,7 @@ class EconomyCog(commands.Cog):
         item = shared.SHOP_ITEMS[item_name.lower()]
         if not spend_coins(ctx.author.id, item["cost"]):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**, this costs **{item['cost']}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**, this costs **{item['cost']:,}**.")
             return
         eco = load_economy()
         eco.setdefault("inventory", {}).setdefault(str(ctx.author.id), []).append(item_name.lower())
@@ -355,7 +355,7 @@ class EconomyCog(commands.Cog):
             return
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
         eco = load_economy()
         bid = eco.get("next_bounty_id", 1)
@@ -363,7 +363,7 @@ class EconomyCog(commands.Cog):
                                 "amount": amount, "description": description, "active": True})
         eco["next_bounty_id"] = bid + 1
         save_economy(eco)
-        await ctx.send(f"🎯 **Bounty #{bid} posted!**\n_{description}_\n💰 Reward: **{amount} coins** to whoever triggers the next roast!")
+        await ctx.send(f"🎯 **Bounty #{bid} posted!**\n_{description}_\n💰 Reward: **{amount:,} coins** to whoever triggers the next roast!")
 
 
 
@@ -373,7 +373,7 @@ class EconomyCog(commands.Cog):
         if not active:
             await ctx.send("🎯 No active bounties. Post one with `!bounty <amount> <description>`.")
             return
-        lines = [f"**#{b['id']}** — {b['amount']} coins\n_{b['description']}_" for b in active]
+        lines = [f"**#{b['id']}** — {b['amount']:,} coins\n_{b['description']}_" for b in active]
         await ctx.send("🎯 **Active Bounties**\n\n" + "\n\n".join(lines))
 
 
@@ -392,13 +392,13 @@ class EconomyCog(commands.Cog):
         cost = minutes * shared.INSURANCE_COST_PER_MINUTE
         if not spend_coins(ctx.author.id, cost):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins {tn}. You have **{bal}**, you need **{cost}**. Keep chatting to earn more.")
+            await ctx.send(f"Not enough coins {tn}. You have **{bal:,}**, you need **{cost:,}**. Keep chatting to earn more.")
             return
         expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=minutes)
         eco = load_economy()
         eco["insurance_expires"] = expires.isoformat()
         save_economy(eco)
-        await ctx.send(f"🛡️ {tn} bought **{minutes} minutes** of insurance for **{cost} coins**. Cute. Won't save him though.")
+        await ctx.send(f"🛡️ {tn} bought **{minutes} minutes** of insurance for **{cost:,} coins**. Cute. Won't save him though.")
 
 
 
@@ -414,7 +414,7 @@ class EconomyCog(commands.Cog):
             await ctx.send("Not enough coins.")
             return
         add_coins(member.id, amount)
-        await ctx.send(f"💸 **{ctx.author.display_name}** sent **{amount} Roast Coins** to **{member.display_name}**.")
+        await ctx.send(f"💸 **{ctx.author.display_name}** sent **{amount:,} Roast Coins** to **{member.display_name}**.")
 
 
 
@@ -428,7 +428,7 @@ class EconomyCog(commands.Cog):
         for l in listings:
             name = self._resolve_name(int(l["seller_id"]), ctx.guild)
             item = shared.SHOP_ITEMS.get(l["item"], {}).get("name", l["item"])
-            lines.append(f"**#{l['id']}** — {item} by {name} — {l['price']} coins  →  `!buyitem {l['id']}`")
+            lines.append(f"**#{l['id']}** — {item} by {name} — {l['price']:,} coins  →  `!buyitem {l['id']}`")
         await ctx.send("🕶️ **Black Market**\n\n" + "\n".join(lines))
 
 
@@ -456,7 +456,7 @@ class EconomyCog(commands.Cog):
         )
         eco["next_listing_id"] = lid + 1
         save_economy(eco)
-        await ctx.send(f"🕶️ Listed **{shared.SHOP_ITEMS[item_name]['name']}** for **{price} coins** on the black market (ID #{lid}).")
+        await ctx.send(f"🕶️ Listed **{shared.SHOP_ITEMS[item_name]['name']}** for **{price:,} coins** on the black market (ID #{lid}).")
 
 
 
@@ -483,7 +483,7 @@ class EconomyCog(commands.Cog):
         seller = ctx.guild.get_member(int(listing["seller_id"]))
         seller_name = seller.display_name if seller else "Unknown"
         item_name = shared.SHOP_ITEMS.get(listing["item"], {}).get("name", listing["item"])
-        await ctx.send(f"🕶️ **{ctx.author.display_name}** bought **{item_name}** from **{seller_name}** for **{listing['price']} coins**.")
+        await ctx.send(f"🕶️ **{ctx.author.display_name}** bought **{item_name}** from **{seller_name}** for **{listing['price']:,} coins**.")
 
 
 

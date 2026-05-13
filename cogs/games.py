@@ -107,7 +107,7 @@ class GamesCog(commands.Cog):
             return
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
         number = random.randint(1, 100)
         shared.highlow_games[ctx.author.id] = {"number": number, "bet": amount, "multiplier": 1.0, "channel_id": ctx.channel.id}
@@ -134,13 +134,13 @@ class GamesCog(commands.Cog):
                 return
             if not spend_coins(ctx.author.id, amount):
                 bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-                await ctx.send(f"Not enough coins. You have **{bal}**.")
+                await ctx.send(f"Not enough coins. You have **{bal:,}**.")
                 return
             game["players"].append({
                 "user_id": ctx.author.id, "name": ctx.author.display_name,
                 "bet": amount, "hand": [], "stood": False, "busted": False,
             })
-            await ctx.send(f"✅ **{ctx.author.display_name}** joined for **{amount} coins**!")
+            await ctx.send(f"✅ **{ctx.author.display_name}** joined for **{amount:,} coins**!")
             return
 
         # Block if a round is mid-game
@@ -150,7 +150,7 @@ class GamesCog(commands.Cog):
 
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
 
         shared.blackjack_games[channel_id] = {
@@ -162,7 +162,7 @@ class GamesCog(commands.Cog):
         }
 
         await ctx.send(
-            f"🃏 **BLACKJACK** — **{ctx.author.display_name}** opened a table for **{amount} coins**!\n"
+            f"🃏 **BLACKJACK** — **{ctx.author.display_name}** opened a table for **{amount:,} coins**!\n"
             f"Others: `!blackjack <bet>` to join. Starting in **20 seconds**..."
         )
         await asyncio.sleep(20)
@@ -244,22 +244,22 @@ class GamesCog(commands.Cog):
         for p in game["players"]:
             pval = hand_value(p["hand"])
             if p["busted"]:
-                result_lines.append(f"❌ **{p['name']}** — Bust — lost **{p['bet']} coins**")
+                result_lines.append(f"❌ **{p['name']}** — Bust — lost **{p['bet']:,} coins**")
             elif is_blackjack(p["hand"]) and not is_blackjack(game["dealer_hand"]):
                 payout = int(p["bet"] * 2.5)
                 add_coins(p["user_id"], payout)
-                result_lines.append(f"🃏 **{p['name']}** — Blackjack! — won **{payout - p['bet']} coins**")
+                result_lines.append(f"🃏 **{p['name']}** — Blackjack! — won **{payout - p['bet']:,} coins**")
             elif is_blackjack(p["hand"]) and is_blackjack(game["dealer_hand"]):
                 add_coins(p["user_id"], p["bet"])
                 result_lines.append(f"🤝 **{p['name']}** — Blackjack push — bet returned")
             elif dealer_bust or pval > dealer_val:
                 add_coins(p["user_id"], p["bet"] * 2)
-                result_lines.append(f"✅ **{p['name']}** — {pval} vs {dealer_val} — won **{p['bet']} coins**")
+                result_lines.append(f"✅ **{p['name']}** — {pval} vs {dealer_val} — won **{p['bet']:,} coins**")
             elif pval == dealer_val:
                 add_coins(p["user_id"], p["bet"])
                 result_lines.append(f"🤝 **{p['name']}** — {pval} push — bet returned")
             else:
-                result_lines.append(f"❌ **{p['name']}** — {pval} vs {dealer_val} — lost **{p['bet']} coins**")
+                result_lines.append(f"❌ **{p['name']}** — {pval} vs {dealer_val} — lost **{p['bet']:,} coins**")
 
         del shared.blackjack_games[channel_id]
         await ctx.send("\n".join(result_lines))
@@ -280,12 +280,12 @@ class GamesCog(commands.Cog):
 
         if not spend_coins(ctx.author.id, amount):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
 
         msg = await ctx.send(
             f"🎲 **DICE DUEL**\n\n"
-            f"**{ctx.author.display_name}** challenges **{opponent.mention}** for **{amount} coins** a side!\n\n"
+            f"**{ctx.author.display_name}** challenges **{opponent.mention}** for **{amount:,} coins** a side!\n\n"
             f"React ✅ to accept or ❌ to decline. (30 seconds)"
         )
         await msg.add_reaction("✅")
@@ -309,11 +309,11 @@ class GamesCog(commands.Cog):
         if not spend_coins(opponent.id, amount):
             add_coins(ctx.author.id, amount)
             bal = load_economy()["balances"].get(str(opponent.id), 0)
-            await ctx.send(f"**{opponent.display_name}** accepted but only has **{bal} coins**. Challenge cancelled, {ctx.author.mention} refunded.")
+            await ctx.send(f"**{opponent.display_name}** accepted but only has **{bal:,} coins**. Challenge cancelled, {ctx.author.mention} refunded.")
             return
 
         pot = amount * 2
-        await ctx.send(f"✅ **{opponent.display_name}** accepted! Pot: **{pot} coins**. Rolling...")
+        await ctx.send(f"✅ **{opponent.display_name}** accepted! Pot: **{pot:,} coins**. Rolling...")
 
         while True:
             await asyncio.sleep(1)
@@ -327,11 +327,11 @@ class GamesCog(commands.Cog):
 
             if a_total > b_total:
                 add_coins(ctx.author.id, pot)
-                await ctx.send(f"🏆 **{ctx.author.display_name}** wins and takes **{pot} coins!**")
+                await ctx.send(f"🏆 **{ctx.author.display_name}** wins and takes **{pot:,} coins!**")
                 break
             elif b_total > a_total:
                 add_coins(opponent.id, pot)
-                await ctx.send(f"🏆 **{opponent.display_name}** wins and takes **{pot} coins!**")
+                await ctx.send(f"🏆 **{opponent.display_name}** wins and takes **{pot:,} coins!**")
                 break
             else:
                 await ctx.send("🤝 **TIE — rolling again!**")
@@ -398,12 +398,12 @@ class GamesCog(commands.Cog):
             if scores:
                 top = sorted(scores.items(), key=lambda x: x[1], reverse=True)
                 board = "\n".join(
-                    f"{ctx.guild.get_member(uid).display_name if ctx.guild.get_member(uid) else 'Unknown'}: {c} coins"
+                    f"{ctx.guild.get_member(uid).display_name if ctx.guild.get_member(uid) else 'Unknown'}: {c:,} coins"
                     for uid, c in top
                 )
                 mvp = ctx.guild.get_member(top[0][0])
                 mvp_name = mvp.display_name if mvp else "Unknown"
-                await ctx.send(f"🏆 **SPORTS TRIVIA OVER!**\n\n{board}\n\nMVP: **{mvp_name}** with **{top[0][1]} coins** earned!")
+                await ctx.send(f"🏆 **SPORTS TRIVIA OVER!**\n\n{board}\n\nMVP: **{mvp_name}** with **{top[0][1]:,} coins** earned!")
             else:
                 await ctx.send("🏆 **SPORTS TRIVIA OVER!** Nobody scored a single point. Embarrassing.")
 
@@ -520,14 +520,14 @@ class GamesCog(commands.Cog):
             if scores:
                 top = sorted(scores.items(), key=lambda x: x[1], reverse=True)
                 board = "\n".join(
-                    f"{ctx.guild.get_member(uid).display_name if ctx.guild.get_member(uid) else 'Unknown'}: {coins} coins"
+                    f"{ctx.guild.get_member(uid).display_name if ctx.guild.get_member(uid) else 'Unknown'}: {coins:,} coins"
                     for uid, coins in top
                 )
                 mvp = ctx.guild.get_member(top[0][0]) if ctx.guild else None
                 mvp_name = mvp.display_name if mvp else "Unknown"
                 await ctx.send(
                     f"🦬 **BUFFALO TRIVIA OVER!**\n\n{board}\n\n"
-                    f"MVP: **{mvp_name}** with **{top[0][1]} coins** earned!"
+                    f"MVP: **{mvp_name}** with **{top[0][1]:,} coins** earned!"
                 )
             else:
                 await ctx.send("🦬 **BUFFALO TRIVIA OVER!** Nobody scored. Brutal.")
@@ -545,20 +545,20 @@ class GamesCog(commands.Cog):
             eco = load_economy()
             pot = eco.get("lottery_pot", 500)
             tickets = eco.get("lottery_tickets", {}).get(str(ctx.author.id), 0)
-            await ctx.send(f"🎟️ **Weekly Lottery** — 10 coins per ticket\nCurrent pot: **{pot} coins** | Your tickets: **{tickets}**\nUsage: `!lottery <amount>` (must be multiple of 10)")
+            await ctx.send(f"🎟️ **Weekly Lottery** — 10 coins per ticket\nCurrent pot: **{pot:,} coins** | Your tickets: **{tickets:,}**\nUsage: `!lottery <amount>` (must be multiple of 10)")
             return
         tickets = amount // 10
         cost = tickets * 10
         if not spend_coins(ctx.author.id, cost):
             bal = load_economy()["balances"].get(str(ctx.author.id), 0)
-            await ctx.send(f"Not enough coins. You have **{bal}**.")
+            await ctx.send(f"Not enough coins. You have **{bal:,}**.")
             return
         eco = load_economy()
         uid = str(ctx.author.id)
         eco.setdefault("lottery_tickets", {})[uid] = eco.get("lottery_tickets", {}).get(uid, 0) + tickets
         eco["lottery_pot"] = eco.get("lottery_pot", 0) + cost
         save_economy(eco)
-        await ctx.send(f"🎟️ Bought **{tickets} ticket(s)** for **{cost} coins**! Pot is now **{eco['lottery_pot']} coins**. Drawing Sunday at 9 PM EST!")
+        await ctx.send(f"🎟️ Bought **{tickets:,} ticket(s)** for **{cost:,} coins**! Pot is now **{eco['lottery_pot']:,} coins**. Drawing Sunday at 9 PM EST!")
 
 
 

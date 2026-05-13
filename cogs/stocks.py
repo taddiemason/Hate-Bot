@@ -72,7 +72,7 @@ class StocksCog(commands.Cog):
             per_share = round(price * info["dividend_rate"], 2)
             total_paid = sum(v[ticker] for v in payouts.values() if ticker in v)
             if total_paid:
-                lines.append(f"**${ticker}** — {per_share:.2f} coins/share  ({total_paid:,} coins paid out)")
+                lines.append(f"**${ticker}** — {per_share:,.2f} coins/share  ({total_paid:,} coins paid out)")
 
         for _, ch in shared._get_guild_channels():
             try:
@@ -127,7 +127,7 @@ class StocksCog(commands.Cog):
                 rating = "🟡 NEUTRAL"
 
             lines.append(
-                f"**${ticker}** — Base: **${old_base:.2f} → ${new_base:.2f}** ({change_pct:+.1f}%)  {rating}"
+                f"**${ticker}** — Base: **${old_base:,.2f} → ${new_base:,.2f}** ({change_pct:+.1f}%)  {rating}"
             )
 
         save_economy(eco)
@@ -250,7 +250,7 @@ class StocksCog(commands.Cog):
                     localized = shared._t(rumor['headline'], gid).replace("{member}", shared._get_random_member_name(gid))
                     await ch.send(
                         f"✅ **CONFIRMED — ${rumor['ticker']}:** {localized}\n"
-                        f"**${rumor['old_price']:.2f} → ${new_p:.2f}** | {analyst}"
+                        f"**${rumor['old_price']:,.2f} → ${new_p:,.2f}** | {analyst}"
                     )
             else:
                 for t, pct in rumor["pre_impact"].items():
@@ -361,7 +361,7 @@ class StocksCog(commands.Cog):
                     localized = shared._t(headline, gid).replace("{member}", shared._get_random_member_name(gid))
                     await ch.send(
                         f"🔍 **UNCONFIRMED — ${ticker}:** *\"{localized}\"*\n"
-                        f"Markets reacting cautiously: **${cur_p:.2f}** ({pre_pct:+.1f}% pre-move) "
+                        f"Markets reacting cautiously: **${cur_p:,.2f}** ({pre_pct:+.1f}% pre-move) "
                         f"— confirmation expected in ~20 min..."
                     )
             else:
@@ -387,8 +387,8 @@ class StocksCog(commands.Cog):
                 ch = self.bot.get_channel(alert["channel_id"])
                 if ch:
                     asyncio.create_task(ch.send(
-                        f"🔔 <@{alert['uid']}> **${t}** hit your alert target of **${alert['target']:.2f}** "
-                        f"(now **${current:.2f}**)"
+                        f"🔔 <@{alert['uid']}> **${t}** hit your alert target of **${alert['target']:,.2f}** "
+                        f"(now **${current:,.2f}**)"
                     ))
             else:
                 remaining_alerts.append(alert)
@@ -401,14 +401,14 @@ class StocksCog(commands.Cog):
             new_p = eco["market"][ticker]["price"]
             analyst = random.choice(shared._ANALYST_QUOTES)
             linked_str = "".join(
-                f" | **${t}** → **${eco['market'][t]['price']:.2f}** ({pct:+.1f}%)"
+                f" | **${t}** → **${eco['market'][t]['price']:,.2f}** ({pct:+.1f}%)"
                 for t, pct in impacts.items() if t != ticker
             )
             for gid, ch in broadcast_channels:
                 localized = shared._t(headline, gid).replace("{member}", shared._get_random_member_name(gid))
                 msg_text = (
                     f"{arrow} **BREAKING — ${ticker}:** {localized}\n"
-                    f"**${old_p:.2f} → ${new_p:.2f}** ({impact_pct:+.1f}%){linked_str}\n"
+                    f"**${old_p:,.2f} → ${new_p:,.2f}** ({impact_pct:+.1f}%){linked_str}\n"
                     f"*{analyst}*"
                 )
                 await ch.send(msg_text)
@@ -499,7 +499,7 @@ class StocksCog(commands.Cog):
                 new_price = eco["market"][ticker]["price"]
                 await channel.send(
                     f"🔥 **SHORT SQUEEZE — ${ticker}!** Short interest hit **{si_pct:.1f}%** of float. "
-                    f"Price spiked **+{spike_pct:.1f}%**: **${old:.2f}** → **${new_price:.2f}**. "
+                    f"Price spiked **+{spike_pct:.1f}%**: **${old:,.2f}** → **${new_price:,.2f}**. "
                     f"Short sellers getting squeezed! 💀"
                 )
 
@@ -510,7 +510,7 @@ class StocksCog(commands.Cog):
                 await channel.send(
                     f"⚠️ **MARGIN WARNING** — {member.mention} your short on **${ticker}** has lost "
                     f"**{loss_pct*100:.0f}%** of collateral (margin health: **{health}%**). "
-                    f"Current price: **${price:.2f}**. Cover now with `!cover` or risk liquidation at 80%."
+                    f"Current price: **${price:,.2f}**. Cover now with `!cover` or risk liquidation at 80%."
                 )
 
             for uid, ticker, shares, price, pnl, returned in liquidations:
@@ -518,9 +518,9 @@ class StocksCog(commands.Cog):
                 if not member:
                     continue
                 await channel.send(
-                    f"🚨 **MARGIN CALL** — {member.mention}'s short on **${ticker}** ({shares} shares) was "
-                    f"force-liquidated at **${price:.2f}**. "
-                    f"P&L: **{_fmt_pnl(pnl)} coins** | Returned: **{returned:.0f} coins**"
+                    f"🚨 **MARGIN CALL** — {member.mention}'s short on **${ticker}** ({shares:,} shares) was "
+                    f"force-liquidated at **${price:,.2f}**. "
+                    f"P&L: **{_fmt_pnl(pnl)} coins** | Returned: **{returned:,.0f} coins**"
                 )
 
 
@@ -594,8 +594,8 @@ class StocksCog(commands.Cog):
         # Distance from dynamic base (and drift from original)
         from_base = round((current - base) / base * 100, 1)
         base_drift = round((base - static_base) / static_base * 100, 1)
-        drift_str = f"  *(drifted {base_drift:+.1f}% from original ${static_base:.2f})*" if abs(base_drift) >= 0.1 else ""
-        base_str = f"{from_base:+.1f}% from base (${base:.2f}){drift_str}"
+        drift_str = f"  *(drifted {base_drift:+.1f}% from original ${static_base:,.2f})*" if abs(base_drift) >= 0.1 else ""
+        base_str = f"{from_base:+.1f}% from base (${base:,.2f}){drift_str}"
 
         # Short interest
         shorted = sum(
@@ -609,7 +609,7 @@ class StocksCog(commands.Cog):
 
         ticks_shown = len(spark_prices)
         lines = [
-            f"📈 **${ticker} Trend** — ${current:.2f}  |  {base_str}",
+            f"📈 **${ticker} Trend** — ${current:,.2f}  |  {base_str}",
             f"```{spark}```",
             f"*last {ticks_shown} ticks (~{ticks_shown * 10} min)*",
             f"",
@@ -619,9 +619,9 @@ class StocksCog(commands.Cog):
             f"  8 hr:    {fmt_pct(c8h)}",
             f"",
             f"**Range (session history)**",
-            f"  High: ${hi:.2f}   Low: ${lo:.2f}",
+            f"  High: ${hi:,.2f}   Low: ${lo:,.2f}",
             f"",
-            f"**All-Time High:** ${mdata.get('all_time_high', hi):.2f}  |  **All-Time Low:** ${mdata.get('all_time_low', lo):.2f}",
+            f"**All-Time High:** ${mdata.get('all_time_high', hi):,.2f}  |  **All-Time Low:** ${mdata.get('all_time_low', lo):,.2f}",
             f"",
             f"**Momentum:** {momentum}{si_str}",
         ]
@@ -630,7 +630,7 @@ class StocksCog(commands.Cog):
         div_rate = all_stocks.get(ticker, {}).get("dividend_rate")
         if div_rate:
             weekly_per_share = round(current * div_rate, 2)
-            lines.append(f"💰 **Dividend:** {weekly_per_share:.2f} coins/share/week ({div_rate*100:.1f}% weekly yield)")
+            lines.append(f"💰 **Dividend:** {weekly_per_share:,.2f} coins/share/week ({div_rate*100:.1f}% weekly yield)")
         await ctx.send("\n".join(lines))
 
 
@@ -688,8 +688,8 @@ class StocksCog(commands.Cog):
                 delist_str = ""
 
             lines.append(
-                f"{label}**${ticker}** — ${price:.2f}  {trend} {change:+.2f} ({pct:+.1f}%){pct_2h_str}  "
-                f"Vol: {vol}{si_str}{delist_str}"
+                f"{label}**${ticker}** — ${price:,.2f}  {trend} {change:+,.2f} ({pct:+.1f}%){pct_2h_str}  "
+                f"Vol: {vol:,}{si_str}{delist_str}"
             )
 
         # Top portfolio holders
@@ -700,7 +700,7 @@ class StocksCog(commands.Cog):
             for uid in ranked:
                 name = resolve_member_name(int(uid), ctx.guild)
                 val = get_portfolio_value(eco, uid)
-                lines.append(f"  **{name}** — {val:.0f} coins")
+                lines.append(f"  **{name}** — {val:,.0f} coins")
 
         # Sentiment indicator
         s_score, s_label, s_emoji = _market_sentiment(eco)
@@ -825,8 +825,8 @@ class StocksCog(commands.Cog):
         save_economy(eco)
         current = eco["market"][ticker]["price"]
         await ctx.send(
-            f"📋 Limit order **#{order_id}** placed: **{order_type.upper()} {shares} ${ticker}** "
-            f"@ **${price:.2f}** (current: **${current:.2f}**). You'll be notified when it fills."
+            f"📋 Limit order **#{order_id}** placed: **{order_type.upper()} {shares:,} ${ticker}** "
+            f"@ **${price:,.2f}** (current: **${current:,.2f}**). You'll be notified when it fills."
         )
 
 
@@ -871,8 +871,8 @@ class StocksCog(commands.Cog):
                 pct = (price / pos["avg_cost"] - 1) * 100 if pos["avg_cost"] else 0
                 pct_str = f"{pct:+.1f}%"
                 lines.append(
-                    f"  **${ticker}** — {pos['shares']} shares @ avg ${pos['avg_cost']:.2f} | "
-                    f"Now: ${price:.2f} ({pct_str}) | Value: {value:.0f} | P&L: **{_fmt_pnl(pnl)}**"
+                    f"  **${ticker}** — {pos['shares']:,} shares @ avg ${pos['avg_cost']:,.2f} | "
+                    f"Now: ${price:,.2f} ({pct_str}) | Value: {value:,.0f} | P&L: **{_fmt_pnl(pnl)}**"
                 )
         if shorts:
             lines.append("\n**Short Positions:**")
@@ -883,10 +883,10 @@ class StocksCog(commands.Cog):
                 pct = (pos["avg_price"] / price - 1) * 100 if price else 0
                 pct_str = f"{pct:+.1f}%"
                 lines.append(
-                    f"  **${ticker}** — {pos['shares']} shares short @ ${pos['avg_price']:.2f} | "
-                    f"Now: ${price:.2f} ({pct_str}) | Collateral: {pos['collateral']:.0f} | P&L: **{_fmt_pnl(pnl)}**"
+                    f"  **${ticker}** — {pos['shares']:,} shares short @ ${pos['avg_price']:,.2f} | "
+                    f"Now: ${price:,.2f} ({pct_str}) | Collateral: {pos['collateral']:,.0f} | P&L: **{_fmt_pnl(pnl)}**"
                 )
-        lines.append(f"\n**Total Portfolio Value: {total_value:.0f} coins**")
+        lines.append(f"\n**Total Portfolio Value: {total_value:,.0f} coins**")
         await ctx.send("\n".join(lines))
 
 
@@ -916,7 +916,7 @@ class StocksCog(commands.Cog):
             "channel_id": ctx.channel.id,
         })
         save_economy(eco)
-        await ctx.send(f"🔔 Alert set: you'll be pinged when **${ticker}** goes **{direction} ${price:.2f}** (currently ${current:.2f}).")
+        await ctx.send(f"🔔 Alert set: you'll be pinged when **${ticker}** goes **{direction} ${price:,.2f}** (currently ${current:,.2f}).")
 
 
 
@@ -931,7 +931,7 @@ class StocksCog(commands.Cog):
         lines = ["📋 **Your Pending Limit Orders:**\n"]
         for o in orders:
             lines.append(
-                f"**#{o['id']}** — {o['order_type'].upper()} {o['shares']} **${o['ticker']}** @ **${o['limit_price']:.2f}**"
+                f"**#{o['id']}** — {o['order_type'].upper()} {o['shares']:,} **${o['ticker']}** @ **${o['limit_price']:,.2f}**"
             )
         lines.append("\nUse `!cancellimit <id>` to cancel.")
         await ctx.send("\n".join(lines))
@@ -963,7 +963,7 @@ class StocksCog(commands.Cog):
         uid = str(ctx.author.id)
         bal = eco["balances"].get(uid, 0)
         if bal < margin:
-            await ctx.send(f"Need **{margin:.0f} coins** margin (20% of position). You have **{bal}**.")
+            await ctx.send(f"Need **{margin:,.0f} coins** margin (20% of position). You have **{bal:,}**.")
             return
         eco["balances"][uid] = bal - margin
         deriv_id = eco["next_derivative_id"]
@@ -981,8 +981,8 @@ class StocksCog(commands.Cog):
         save_economy(eco)
         emoji = "📈" if direction == "long" else "📉"
         await ctx.send(
-            f"{emoji} Opened **{direction.upper()}** futures: **{contracts}x ${ticker}** @ **${price:.2f}**. "
-            f"Margin held: **{margin:.0f} coins**. Settles in 7 days. ID: **#{deriv_id}**"
+            f"{emoji} Opened **{direction.upper()}** futures: **{contracts:,}x ${ticker}** @ **${price:,.2f}**. "
+            f"Margin held: **{margin:,.0f} coins**. Settles in 7 days. ID: **#{deriv_id}**"
         )
 
 
@@ -1010,8 +1010,8 @@ class StocksCog(commands.Cog):
         eco["futures"][uid] = [p for p in positions if p["id"] != deriv_id]
         save_economy(eco)
         await ctx.send(
-            f"✅ Closed futures **#{deriv_id}**: **{pos['direction'].upper()} {pos['contracts']}x ${pos['ticker']}**. "
-            f"P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returned:.0f} coins**."
+            f"✅ Closed futures **#{deriv_id}**: **{pos['direction'].upper()} {pos['contracts']:,}x ${pos['ticker']}**. "
+            f"P&L: **{_fmt_pnl(pnl)} coins**. Returned: **{returned:,.0f} coins**."
         )
 
 
@@ -1035,8 +1035,8 @@ class StocksCog(commands.Cog):
             pnl = round(pnl, 2)
             days_left = max(0, (datetime.datetime.fromisoformat(pos["expiry"]) - now).days)
             lines.append(
-                f"**#{pos['id']}** {pos['direction'].upper()} **{pos['contracts']}x ${pos['ticker']}** "
-                f"@ ${pos['entry_price']:.2f} | Now: ${price:.2f} | P&L: **{_fmt_pnl(pnl)}** | {days_left}d left"
+                f"**#{pos['id']}** {pos['direction'].upper()} **{pos['contracts']:,}x ${pos['ticker']}** "
+                f"@ ${pos['entry_price']:,.2f} | Now: ${price:,.2f} | P&L: **{_fmt_pnl(pnl)}** | {days_left}d left"
             )
         lines.append("\nUse `!closefutures <id>` to close early.")
         await ctx.send("\n".join(lines))
@@ -1073,7 +1073,7 @@ class StocksCog(commands.Cog):
         bal = eco["balances"].get(uid, 0)
         if bal < total_premium:
             await ctx.send(
-                f"Premium costs **{total_premium:.0f} coins** (${premium_per:.2f}/contract). You have **{bal}**."
+                f"Premium costs **{total_premium:,.0f} coins** (${premium_per:,.2f}/contract). You have **{bal:,}**."
             )
             return
         eco["balances"][uid] = bal - total_premium
@@ -1093,8 +1093,8 @@ class StocksCog(commands.Cog):
         save_economy(eco)
         itm = "ITM" if (option_type == "call" and spot > strike) or (option_type == "put" and spot < strike) else "OTM"
         await ctx.send(
-            f"✅ Bought **{contracts}x {option_type.upper()} ${ticker}** strike **${strike:.2f}** ({itm}, spot: ${spot:.2f}). "
-            f"Premium: **{total_premium:.0f} coins**. Expires in {days}d. ID: **#{deriv_id}**"
+            f"✅ Bought **{contracts:,}x {option_type.upper()} ${ticker}** strike **${strike:,.2f}** ({itm}, spot: ${spot:,.2f}). "
+            f"Premium: **{total_premium:,.0f} coins**. Expires in {days}d. ID: **#{deriv_id}**"
         )
 
 
@@ -1121,7 +1121,7 @@ class StocksCog(commands.Cog):
         if intrinsic <= 0:
             await ctx.send(
                 f"Option **#{deriv_id}** is out of the money. "
-                f"Spot: ${price:.2f}, Strike: ${opt['strike']:.2f} — nothing to exercise."
+                f"Spot: ${price:,.2f}, Strike: ${opt['strike']:,.2f} — nothing to exercise."
             )
             return
         payout = round(intrinsic, 2)
@@ -1130,8 +1130,8 @@ class StocksCog(commands.Cog):
         save_economy(eco)
         net_pnl = round(payout - opt["premium_paid"], 2)
         await ctx.send(
-            f"✅ Exercised **#{deriv_id}** ({opt['option_type'].upper()} ${opt['ticker']} @ ${opt['strike']:.2f}). "
-            f"Payout: **{payout:.0f} coins**. Net P&L: **{_fmt_pnl(net_pnl)} coins**."
+            f"✅ Exercised **#{deriv_id}** ({opt['option_type'].upper()} ${opt['ticker']} @ ${opt['strike']:,.2f}). "
+            f"Payout: **{payout:,.0f} coins**. Net P&L: **{_fmt_pnl(net_pnl)} coins**."
         )
 
 
@@ -1157,9 +1157,9 @@ class StocksCog(commands.Cog):
             days_left = max(0, (datetime.datetime.fromisoformat(opt["expiry"]) - now).days)
             status = "✅ ITM" if itm else "❌ OTM"
             lines.append(
-                f"**#{opt['id']}** {opt['option_type'].upper()} **{opt['contracts']}x ${opt['ticker']}** "
-                f"strike ${opt['strike']:.2f} | Spot: ${spot:.2f} {status} | "
-                f"Value: {intrinsic:.0f} | Paid: {opt['premium_paid']:.0f} | {days_left}d left"
+                f"**#{opt['id']}** {opt['option_type'].upper()} **{opt['contracts']:,}x ${opt['ticker']}** "
+                f"strike ${opt['strike']:,.2f} | Spot: ${spot:,.2f} {status} | "
+                f"Value: {intrinsic:,.0f} | Paid: {opt['premium_paid']:,.0f} | {days_left}d left"
             )
         lines.append("\nUse `!exercise <id>` to exercise early.")
         await ctx.send("\n".join(lines))
