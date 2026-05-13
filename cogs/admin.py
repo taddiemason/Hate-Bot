@@ -257,11 +257,12 @@ class AdminCog(commands.Cog):
             "**`!exercise <id>`** — Exercise an option if it's in the money.\n"
             "**`!myoptions`** — View your open options.\n\n"
             "**🏢 Property**\n"
-            "**`!property [@user]`** — Browse property tiers and view owned businesses.\n"
-            "**`!buyproperty <type>`** — Buy a property. Each additional copy of the same type costs 1.5x more.\n"
-            "**`!sellproperty <type>`** — Sell one copy for 40% of its purchase cost.\n"
+            "**`!property`** — View today's rotation (5 variants per tier with rotating perks) and your owned properties.\n"
+            "**`!property <tier>`** — Detailed view of today's variants for one tier.\n"
+            "**`!buyproperty <tier> <perk>`** — Buy a property variant that's in today's rotation. Each additional copy of the same tier costs 1.5x more.\n"
+            "**`!sellproperty <tier> [perk]`** — Sell one copy for 40% of its purchase cost.\n"
             "**`!collect`** — Claim accumulated property earnings (paid per 24h elapsed). Detailed breakdown is DMed.\n"
-            "**`!sabotage @user <type>`** — Sabotage someone's property (10% cost, 50% success, 24h cooldown).\n\n"
+            "**`!sabotage @user <tier>`** — Sabotage someone's property (10% cost, 50% success, 24h cooldown).\n\n"
             "**`!commands`** — Shows this list."
         )
 

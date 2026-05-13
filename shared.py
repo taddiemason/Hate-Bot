@@ -1191,10 +1191,65 @@ PROPERTY_EVENTS = [
     {"kind": "boom",     "chance": 0.03, "id": "lucky_day",        "emoji": "💎", "label": "Lucky day — business was booming",          "payout_mult": 1.5},
 ]
 
+# Perks attach to individual property variants. Each variant has exactly one perk.
+PROPERTY_PERKS = {
+    "sunny":     {"emoji": "🌞", "label": "Sunny",     "desc": "+25% gross income",                "gross_mult": 1.25},
+    "lean":      {"emoji": "💸", "label": "Lean",      "desc": "-40% upkeep",                       "upkeep_mult": 0.60},
+    "hot_spot":  {"emoji": "📈", "label": "Hot Spot",  "desc": "+75% boom chance",                  "boom_mult": 1.75},
+    "fortified": {"emoji": "🛡️", "label": "Fortified", "desc": "-60% disaster chance",              "disaster_mult": 0.40},
+    "tax_haven": {"emoji": "🏛️", "label": "Tax Haven", "desc": "Immune to audits & lawsuits",       "immune": ["tax_audit", "lawsuit"]},
+    "insured":   {"emoji": "🚒", "label": "Insured",   "desc": "Immune to fires & vandalism",       "immune": ["kitchen_fire", "vandalism"]},
+    "volatile":  {"emoji": "🎢", "label": "Volatile",  "desc": "+40% gross BUT +100% disasters",    "gross_mult": 1.40, "disaster_mult": 2.0},
+    "steady":    {"emoji": "🧘", "label": "Steady",    "desc": "-60% disaster AND -60% boom",       "disaster_mult": 0.40, "boom_mult": 0.40},
+    "premium":   {"emoji": "💰", "label": "Premium",   "desc": "+15% gross AND -15% upkeep",        "gross_mult": 1.15, "upkeep_mult": 0.85},
+    "automated": {"emoji": "🤖", "label": "Automated", "desc": "-75% upkeep BUT -25% gross",        "upkeep_mult": 0.25, "gross_mult": 0.75},
+}
+
+PROPERTY_VARIANTS_PER_DAY = 5  # how many perks rotate into availability per tier per day
+
+
+def _variant_id(tier_key, perk_key):
+    return f"{tier_key}__{perk_key}"
+
+
+def _variant_name(tier_key, perk_key):
+    tier = PROPERTY_TIERS[tier_key]
+    perk = PROPERTY_PERKS[perk_key]
+    return f"{perk['label']} {tier['name']}"
+
 
 def init_properties(eco):
     eco.setdefault("properties", {})
     eco.setdefault("property_sabotage_cooldowns", {})
+
+
+def get_property_rotation():
+    """Return (rotation_dict, expiry_dt). rotation_dict is {tier_key: [perk_key,...]}.
+
+    Refreshes every 24 hours at midnight America/New_York. Stored in economy.json.
+    """
+    eco = load_economy()
+    init_properties(eco)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_str = eco.get("property_rotation_expires")
+    expires = datetime.datetime.fromisoformat(expires_str) if expires_str else None
+    if not expires or now >= expires:
+        rotation = {}
+        perk_keys_all = list(PROPERTY_PERKS.keys())
+        for tier_key in PROPERTY_TIERS:
+            picks = random.sample(perk_keys_all, PROPERTY_VARIANTS_PER_DAY)
+            rotation[tier_key] = picks
+        ny = ZoneInfo("America/New_York")
+        next_midnight_et = (
+            datetime.datetime.now(ny).replace(hour=0, minute=0, second=0, microsecond=0)
+            + datetime.timedelta(days=1)
+        )
+        next_expiry_utc = next_midnight_et.astimezone(datetime.timezone.utc)
+        eco["property_rotation"] = rotation
+        eco["property_rotation_expires"] = next_expiry_utc.isoformat()
+        save_economy(eco)
+        return rotation, next_expiry_utc
+    return eco["property_rotation"], expires
 
 
 def get_property_count(eco, uid, prop_type):
@@ -1207,18 +1262,32 @@ def next_property_cost(eco, uid, prop_type):
     return round(tier["base_cost"] * (PROPERTY_COST_SCALING ** owned))
 
 
-def _roll_property_event():
-    """Return one event dict or None. Disasters and booms are independent rolls."""
+def _apply_perk_stats(prop, tier):
+    """Return (gross, upkeep) for one day after applying the property's perk."""
+    perk = PROPERTY_PERKS.get(prop.get("perk"), {})
+    gross = tier["gross_per_day"] * perk.get("gross_mult", 1.0)
+    upkeep = tier["upkeep_per_day"] * perk.get("upkeep_mult", 1.0)
+    return gross, upkeep
+
+
+def _roll_property_event(prop):
+    """Roll an event for one day, respecting the property's perk modifiers."""
+    perk = PROPERTY_PERKS.get(prop.get("perk"), {})
+    immune = set(perk.get("immune", []))
+    disaster_mult = perk.get("disaster_mult", 1.0)
+    boom_mult = perk.get("boom_mult", 1.0)
     for ev in PROPERTY_EVENTS:
-        if random.random() < ev["chance"]:
+        if ev["id"] in immune:
+            continue
+        chance = ev["chance"] * (disaster_mult if ev["kind"] == "disaster" else boom_mult)
+        if random.random() < chance:
             return ev
     return None
 
 
 def _simulate_property_payouts(prop, tier, days, now_iso):
     """Roll per-day events for `days` days. Returns (net_payout, event_log)."""
-    gross = tier["gross_per_day"]
-    upkeep = tier["upkeep_per_day"]
+    gross, upkeep = _apply_perk_stats(prop, tier)
     value = tier["base_cost"]
     total = 0
     events = []
@@ -1230,18 +1299,18 @@ def _simulate_property_payouts(prop, tier, days, now_iso):
         if skip_until_dt and day_dt <= skip_until_dt:
             events.append({"day": d + 1, "label": "Sabotaged — skipped", "emoji": "🛠️", "net": 0})
             continue
-        ev = _roll_property_event()
+        ev = _roll_property_event(prop)
         if ev is None:
-            net = gross - upkeep
+            net = round(gross - upkeep)
             total += net
             continue
         if ev["kind"] == "boom":
-            net = round(gross * ev["payout_mult"]) - upkeep
+            net = round(gross * ev["payout_mult"] - upkeep)
             total += net
             events.append({"day": d + 1, "label": ev["label"], "emoji": ev["emoji"], "net": net})
         else:
             fine = round(value * ev.get("value_pct_fine", 0))
-            net = -upkeep - fine
+            net = round(-upkeep - fine)
             total += net
             events.append({"day": d + 1, "label": ev["label"], "emoji": ev["emoji"], "net": net})
     return total, events
