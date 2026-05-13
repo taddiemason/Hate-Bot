@@ -256,6 +256,12 @@ class AdminCog(commands.Cog):
             "**`!buyoption <call|put> <TICKER> <contracts> <strike> [days]`** — Buy a call or put option.\n"
             "**`!exercise <id>`** — Exercise an option if it's in the money.\n"
             "**`!myoptions`** — View your open options.\n\n"
+            "**🏢 Property**\n"
+            "**`!property [@user]`** — Browse property tiers and view owned businesses.\n"
+            "**`!buyproperty <type>`** — Buy a property. Each additional copy of the same type costs 1.5x more.\n"
+            "**`!sellproperty <type>`** — Sell one copy for 40% of its purchase cost.\n"
+            "**`!collect`** — Claim accumulated property earnings (paid per 24h elapsed). Detailed breakdown is DMed.\n"
+            "**`!sabotage @user <type>`** — Sabotage someone's property (10% cost, 50% success, 24h cooldown).\n\n"
             "**`!commands`** — Shows this list."
         )
 
