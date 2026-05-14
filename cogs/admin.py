@@ -199,7 +199,7 @@ class AdminCog(commands.Cog):
         ticker = tgt["ticker"]
 
         await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (1/3)**\n\n"
+            f"**📋 {tn} Hate Bot — Commands (1/4)**\n\n"
             f"**`@{tn} Hate Bot`** — Roasts {tn}. Ask it a question for a smart response.\n"
             f"**`!Trial <reason>`** — Puts {tn} on trial. Server votes guilty/not guilty for 60 seconds.\n"
             f"**`!Guesswhosaidit`** — 3 round game. Guess if the quote was {tn} or someone else.\n"
@@ -222,7 +222,7 @@ class AdminCog(commands.Cog):
             "**`!setup`** — (Admin) Register this channel as the roast channel for this server."
         )
         await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (2/3)**\n\n"
+            f"**📋 {tn} Hate Bot — Commands (2/4)**\n\n"
             "**🎮 Minigames & Rewards**\n"
             "**`!daily`** — Daily check-in. Streak builds a multiplier (day 7 = 2x, day 30 = 5x).\n"
             "**`!flip <amount> heads/tails`** — Coinflip gamble.\n"
@@ -236,7 +236,7 @@ class AdminCog(commands.Cog):
             "**`!lottery <amount>`** — Buy lottery tickets (10 coins each). Drawn every Sunday at 9 PM EST."
         )
         await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (3/3)**\n\n"
+            f"**📋 {tn} Hate Bot — Commands (3/4)**\n\n"
             "**📈 Stock Market**\n"
             f"**`!stockmarket`** — View current prices for all stocks (${ticker}, $RUST, $BIGMAC, $TORTA, $TRUMP, $COCAINE).\n"
             "**`!stocktrend <TICKER>`** — Sparkline chart, 30min/2hr/8hr performance, momentum indicator, and range for any stock.\n"
@@ -255,7 +255,10 @@ class AdminCog(commands.Cog):
             "**`!myfutures`** — View your open futures contracts.\n"
             "**`!buyoption <call|put> <TICKER> <contracts> <strike> [days]`** — Buy a call or put option.\n"
             "**`!exercise <id>`** — Exercise an option if it's in the money.\n"
-            "**`!myoptions`** — View your open options.\n\n"
+            "**`!myoptions`** — View your open options."
+        )
+        await ctx.send(
+            f"**📋 {tn} Hate Bot — Commands (4/4)**\n\n"
             "**🏢 Property**\n"
             "**`!propertyhelp`** — 3-page guide to the property system.\n"
             "**`!property`** — View today's rotation (1 perk variant per tier, rotates daily) and your owned properties.\n"
