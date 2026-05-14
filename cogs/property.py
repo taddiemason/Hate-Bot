@@ -115,10 +115,10 @@ class PropertyCog(commands.Cog):
                         su = datetime.datetime.fromisoformat(p["skip_until"])
                         if su > now:
                             sabotaged += 1
-                sab_str = f"  🛠️ {sabotaged} sabotaged" if sabotaged else ""
+                sab_str = f" ({sabotaged} sabotaged)" if sabotaged else ""
                 lines.append(
-                    f"  {tier['emoji']} {perk['emoji']} **{perk['label']} {tier['name']}** ×{count} — "
-                    f"~{net_per_day * count:,}/day net  |  {pending}d pending{sab_str}"
+                    f"  {tier['emoji']} **{perk['label']} {tier['name']}** ×{count} — "
+                    f"~{net_per_day * count:,}/day net | {pending}d pending{sab_str}"
                 )
 
         if target.id == ctx.author.id:
@@ -126,20 +126,20 @@ class PropertyCog(commands.Cog):
             lines.append(f"**Today's Rotation** _(refreshes in {hrs}h {mins}m)_")
             for tier_key, tier in PROPERTY_TIERS.items():
                 perks_today = rotation.get(tier_key, [])
-                perk_strs = " · ".join(
-                    f"{PROPERTY_PERKS[pk]['emoji']} {PROPERTY_PERKS[pk]['label']}"
-                    for pk in perks_today
-                )
                 count = get_property_count(eco, uid, tier_key)
                 cost = next_property_cost(eco, uid, tier_key)
-                owned_str = f"  _(owned: {count})_" if count else ""
+                owned_str = f" _(owned: {count})_" if count else ""
+                if perks_today:
+                    pk = perks_today[0]
+                    perk = PROPERTY_PERKS[pk]
+                    perk_str = f"**{perk['label']}** — _{perk['desc']}_"
+                else:
+                    perk_str = "_(no variant today)_"
                 lines.append(
-                    f"  {tier['emoji']} **{tier['name']}** — **{cost:,}** coins{owned_str}\n"
-                    f"      {perk_strs}"
+                    f"  {tier['emoji']} **{tier['name']}** — {cost:,} coins · {perk_str}{owned_str}"
                 )
             lines.append(
-                "\n`!property <tier>` for variant details and perk effects.\n"
-                "`!buyproperty <tier> <perk>` to purchase. `!collect` to claim. "
+                "\n`!buyproperty <tier> <perk>` to purchase. `!collect` to claim. "
                 "`!sellproperty <tier> [perk]` to sell. `!sabotage @user <tier>` to attack."
             )
 
@@ -173,8 +173,8 @@ class PropertyCog(commands.Cog):
         payback = cost // max(base_net, 1)
 
         lines = [
-            f"{tier['emoji']} **{tier['name']}** — today's variants _(refreshes in {hrs}h {mins}m)_",
-            f"Next purchase: **{cost:,}** coins  |  Base: {tier['gross_per_day']:,} gross − {tier['upkeep_per_day']:,} upkeep = **{base_net:,}/day**  (~{payback}d payback)",
+            f"{tier['emoji']} **{tier['name']}** _(rotation refreshes in {hrs}h {mins}m)_",
+            f"Next purchase: **{cost:,}** coins · Base: {tier['gross_per_day']:,} gross − {tier['upkeep_per_day']:,} upkeep = **{base_net:,}/day** (~{payback}d payback)",
             "",
         ]
         for perk_key in perks_today:
@@ -183,8 +183,8 @@ class PropertyCog(commands.Cog):
             upkeep = round(tier["upkeep_per_day"] * perk.get("upkeep_mult", 1.0))
             net = gross - upkeep
             lines.append(
-                f"  {perk['emoji']} **{perk['label']}** — _{perk['desc']}_\n"
-                f"      ~{net:,}/day net  →  `!buyproperty {tier_key} {perk_key}`"
+                f"**{perk['label']}** — _{perk['desc']}_\n"
+                f"~{net:,}/day net → `!buyproperty {tier_key} {perk_key}`"
             )
         await ctx.send("\n".join(lines))
 
@@ -231,8 +231,8 @@ class PropertyCog(commands.Cog):
         save_economy(eco)
         total = get_property_count(eco, uid, tier_key)
         await ctx.send(
-            f"🏢 **{ctx.author.display_name}** bought a **{tier['emoji']} {perk['emoji']} "
-            f"{perk['label']} {tier['name']}** for **{cost:,} coins**! "
+            f"🏢 **{ctx.author.display_name}** bought a {tier['emoji']} "
+            f"**{perk['label']} {tier['name']}** for **{cost:,} coins**! "
             f"Now owns **{total}** of this tier. Run `!collect` once 24h have passed."
         )
 
@@ -271,11 +271,10 @@ class PropertyCog(commands.Cog):
             del eco["properties"][uid]
         save_economy(eco)
         add_coins(ctx.author.id, refund)
-        perk = PROPERTY_PERKS.get(target_prop.get("perk"), {"emoji": "", "label": ""})
+        perk = PROPERTY_PERKS.get(target_prop.get("perk"), {"label": ""})
         await ctx.send(
-            f"💸 Sold one **{tier['emoji']} {perk.get('emoji','')} "
-            f"{perk.get('label','')} {tier['name']}** for **{refund:,} coins** "
-            f"(40% of {purchase_cost:,})."
+            f"💸 Sold one {tier['emoji']} **{perk.get('label','')} {tier['name']}** for "
+            f"**{refund:,} coins** (40% of {purchase_cost:,})."
         )
 
     @commands.command(name="collect")
@@ -296,14 +295,13 @@ class PropertyCog(commands.Cog):
         for r in results:
             tier = r["tier"]
             prop = r["prop"]
-            perk = PROPERTY_PERKS.get(prop.get("perk"), {"emoji": "", "label": ""})
+            perk = PROPERTY_PERKS.get(prop.get("perk"), {"label": ""})
             dm_lines.append(
-                f"\n{tier['emoji']} {perk.get('emoji','')} **{perk.get('label','')} {tier['name']}** "
-                f"— {r['days']}d → **{r['net']:+,} coins**"
+                f"\n{tier['emoji']} **{perk.get('label','')} {tier['name']}** — {r['days']}d → **{r['net']:+,} coins**"
             )
             if r["events"]:
                 for ev in r["events"]:
-                    dm_lines.append(f"  • Day {ev['day']}: {ev['emoji']} {ev['label']} ({ev['net']:+,})")
+                    dm_lines.append(f"  • Day {ev['day']}: {ev['label']} ({ev['net']:+,})")
             else:
                 dm_lines.append("  • Routine business, no notable events.")
         dm_lines.append(f"\n**Net total: {total:+,} coins**")
@@ -371,12 +369,12 @@ class PropertyCog(commands.Cog):
             save_economy(eco)
             await ctx.send(
                 f"💀 **SABOTAGE!** {ctx.author.display_name} torched {member.display_name}'s "
-                f"**{tier['emoji']} {hit_perk.get('emoji','')} {hit_perk.get('label','')} {tier['name']}** — "
+                f"{tier['emoji']} **{hit_perk.get('label','')} {tier['name']}** — "
                 f"next **{PROPERTY_SABOTAGE_SKIP_DAYS} payouts** skipped on that copy."
             )
             await _dm(
                 member,
-                f"🚨 Your **{tier['emoji']} {hit_perk.get('emoji','')} {hit_perk.get('label','')} {tier['name']}** "
+                f"🚨 Your {tier['emoji']} **{hit_perk.get('label','')} {tier['name']}** "
                 f"was sabotaged by **{ctx.author.display_name}** — "
                 f"next {PROPERTY_SABOTAGE_SKIP_DAYS} payouts on that copy are gone."
             )
@@ -416,22 +414,22 @@ class PropertyCog(commands.Cog):
         )
         page2 = (
             "🏢 **Property Guide — Daily Rotation & Perks**\n\n"
-            "Every tier has a pool of **10 themed perk variants**. **5 of them rotate into availability per tier per day**, "
-            "refreshing at midnight America/New_York. You can only buy a variant that's currently in rotation.\n\n"
+            "Every tier has a pool of **10 themed perk variants**. **One variant per tier rotates into availability each day**, "
+            "refreshing at midnight America/New_York. You can only buy whichever variant is currently in rotation for that tier.\n\n"
             "Once you buy it, the perk is **permanent** — a Sunny Lemonade Stand stays Sunny forever, even after rotation moves on.\n\n"
             "**Perk archetypes**\n"
-            "🌞 **Sunny** — +25% gross income\n"
-            "💸 **Lean** — −40% upkeep\n"
-            "📈 **Hot Spot** — +75% boom chance\n"
-            "🛡️ **Fortified** — −60% disaster chance\n"
-            "🏛️ **Tax Haven** — Immune to audits & lawsuits\n"
-            "🚒 **Insured** — Immune to fires & vandalism\n"
-            "🎢 **Volatile** — +40% gross, but +100% disaster chance\n"
-            "🧘 **Steady** — −60% disasters AND −60% booms (low variance)\n"
-            "💰 **Premium** — +15% gross AND −15% upkeep\n"
-            "🤖 **Automated** — −75% upkeep BUT −25% gross\n\n"
+            "**Sunny** — +25% gross income\n"
+            "**Lean** — −40% upkeep\n"
+            "**Hot Spot** — +75% boom chance\n"
+            "**Fortified** — −60% disaster chance\n"
+            "**Tax Haven** — Immune to audits & lawsuits\n"
+            "**Insured** — Immune to fires & vandalism\n"
+            "**Volatile** — +40% gross, but +100% disaster chance\n"
+            "**Steady** — −60% disasters AND −60% booms (low variance)\n"
+            "**Premium** — +15% gross AND −15% upkeep\n"
+            "**Automated** — −75% upkeep BUT −25% gross\n\n"
             "Different perks suit different playstyles — Tax Haven on a Casino, Automated on a Crypto Mine, "
-            "Volatile when you want to gamble for big payouts.\n\n"
+            "Volatile when you want to gamble for big payouts. Wait for the right roll, or buy what's there today.\n\n"
             "_Page 2/3_"
         )
         page3 = (
