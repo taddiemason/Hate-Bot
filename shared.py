@@ -1161,6 +1161,201 @@ def spend_coins(user_id, amount):
     return True
 
 
+PROPERTY_TIERS = {
+    "lemonade_stand": {"name": "Lemonade Stand", "emoji": "🍋", "base_cost": 5_000,    "gross_per_day": 100,    "upkeep_per_day": 20},
+    "food_truck":     {"name": "Food Truck",     "emoji": "🚚", "base_cost": 25_000,   "gross_per_day": 425,    "upkeep_per_day": 75},
+    "bait_shop":      {"name": "Bait & Tackle",  "emoji": "🎣", "base_cost": 80_000,   "gross_per_day": 1_200,  "upkeep_per_day": 200},
+    "pizza_place":    {"name": "Pizza Place",    "emoji": "🍕", "base_cost": 250_000,  "gross_per_day": 3_500,  "upkeep_per_day": 600},
+    "vape_shop":      {"name": "Vape Shop",      "emoji": "💨", "base_cost": 600_000,  "gross_per_day": 8_000,  "upkeep_per_day": 1_400},
+    "strip_mall":     {"name": "Strip Mall",     "emoji": "🏬", "base_cost": 1_500_000,"gross_per_day": 19_000, "upkeep_per_day": 3_500},
+    "used_car_lot":   {"name": "Used Car Lot",   "emoji": "🚗", "base_cost": 3_000_000,"gross_per_day": 36_000, "upkeep_per_day": 6_500},
+    "casino":         {"name": "Casino",         "emoji": "🎰", "base_cost": 6_000_000,"gross_per_day": 70_000, "upkeep_per_day": 13_000},
+    "crypto_mine":    {"name": "Crypto Mine",    "emoji": "⛏️", "base_cost": 12_000_000,"gross_per_day":130_000,"upkeep_per_day": 25_000},
+}
+
+PROPERTY_COST_SCALING = 1.5  # each additional copy of a property costs 1.5x the prior
+PROPERTY_SABOTAGE_COST_PCT = 0.10
+PROPERTY_SABOTAGE_SUCCESS_RATE = 0.5
+PROPERTY_SABOTAGE_SKIP_DAYS = 3
+PROPERTY_SABOTAGE_COOLDOWN_HOURS = 24
+PROPERTY_SELL_REFUND_PCT = 0.40
+
+PROPERTY_EVENTS = [
+    {"kind": "disaster", "chance": 0.08, "id": "health_inspector", "emoji": "🚨", "label": "Health inspector shut you down",          "payout_mult": 0.0},
+    {"kind": "disaster", "chance": 0.05, "id": "vandalism",        "emoji": "💀", "label": "Vandals trashed the place",                "payout_mult": 0.0},
+    {"kind": "disaster", "chance": 0.03, "id": "tax_audit",        "emoji": "📋", "label": "Tax audit — IRS clawed back earnings",     "payout_mult": 0.0, "value_pct_fine": 0.05},
+    {"kind": "disaster", "chance": 0.02, "id": "lawsuit",          "emoji": "⚖️", "label": "Lawsuit settlement",                       "payout_mult": 0.0, "value_pct_fine": 0.05},
+    {"kind": "disaster", "chance": 0.01, "id": "kitchen_fire",     "emoji": "🔥", "label": "Kitchen fire",                              "payout_mult": 0.0},
+    {"kind": "boom",     "chance": 0.04, "id": "viral_tiktok",     "emoji": "📱", "label": "Went viral on TikTok",                      "payout_mult": 2.0},
+    {"kind": "boom",     "chance": 0.02, "id": "celebrity",        "emoji": "🎤", "label": "Celebrity sighting brought a crowd",        "payout_mult": 3.0},
+    {"kind": "boom",     "chance": 0.03, "id": "lucky_day",        "emoji": "💎", "label": "Lucky day — business was booming",          "payout_mult": 1.5},
+]
+
+# Perks attach to individual property variants. Each variant has exactly one perk.
+PROPERTY_PERKS = {
+    "sunny":     {"emoji": "🌞", "label": "Sunny",     "desc": "+25% gross income",                "gross_mult": 1.25},
+    "lean":      {"emoji": "💸", "label": "Lean",      "desc": "-40% upkeep",                       "upkeep_mult": 0.60},
+    "hot_spot":  {"emoji": "📈", "label": "Hot Spot",  "desc": "+75% boom chance",                  "boom_mult": 1.75},
+    "fortified": {"emoji": "🛡️", "label": "Fortified", "desc": "-60% disaster chance",              "disaster_mult": 0.40},
+    "tax_haven": {"emoji": "🏛️", "label": "Tax Haven", "desc": "Immune to audits & lawsuits",       "immune": ["tax_audit", "lawsuit"]},
+    "insured":   {"emoji": "🚒", "label": "Insured",   "desc": "Immune to fires & vandalism",       "immune": ["kitchen_fire", "vandalism"]},
+    "volatile":  {"emoji": "🎢", "label": "Volatile",  "desc": "+40% gross BUT +100% disasters",    "gross_mult": 1.40, "disaster_mult": 2.0},
+    "steady":    {"emoji": "🧘", "label": "Steady",    "desc": "-60% disaster AND -60% boom",       "disaster_mult": 0.40, "boom_mult": 0.40},
+    "premium":   {"emoji": "💰", "label": "Premium",   "desc": "+15% gross AND -15% upkeep",        "gross_mult": 1.15, "upkeep_mult": 0.85},
+    "automated": {"emoji": "🤖", "label": "Automated", "desc": "-75% upkeep BUT -25% gross",        "upkeep_mult": 0.25, "gross_mult": 0.75},
+}
+
+PROPERTY_VARIANTS_PER_DAY = 5  # how many perks rotate into availability per tier per day
+
+
+def _variant_id(tier_key, perk_key):
+    return f"{tier_key}__{perk_key}"
+
+
+def _variant_name(tier_key, perk_key):
+    tier = PROPERTY_TIERS[tier_key]
+    perk = PROPERTY_PERKS[perk_key]
+    return f"{perk['label']} {tier['name']}"
+
+
+def init_properties(eco):
+    eco.setdefault("properties", {})
+    eco.setdefault("property_sabotage_cooldowns", {})
+
+
+def get_property_rotation():
+    """Return (rotation_dict, expiry_dt). rotation_dict is {tier_key: [perk_key,...]}.
+
+    Refreshes every 24 hours at midnight America/New_York. Stored in economy.json.
+    """
+    eco = load_economy()
+    init_properties(eco)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expires_str = eco.get("property_rotation_expires")
+    expires = datetime.datetime.fromisoformat(expires_str) if expires_str else None
+    if not expires or now >= expires:
+        rotation = {}
+        perk_keys_all = list(PROPERTY_PERKS.keys())
+        for tier_key in PROPERTY_TIERS:
+            picks = random.sample(perk_keys_all, PROPERTY_VARIANTS_PER_DAY)
+            rotation[tier_key] = picks
+        ny = ZoneInfo("America/New_York")
+        next_midnight_et = (
+            datetime.datetime.now(ny).replace(hour=0, minute=0, second=0, microsecond=0)
+            + datetime.timedelta(days=1)
+        )
+        next_expiry_utc = next_midnight_et.astimezone(datetime.timezone.utc)
+        eco["property_rotation"] = rotation
+        eco["property_rotation_expires"] = next_expiry_utc.isoformat()
+        save_economy(eco)
+        return rotation, next_expiry_utc
+    return eco["property_rotation"], expires
+
+
+def get_property_count(eco, uid, prop_type):
+    return sum(1 for p in eco.get("properties", {}).get(str(uid), []) if p["type"] == prop_type)
+
+
+def next_property_cost(eco, uid, prop_type):
+    tier = PROPERTY_TIERS[prop_type]
+    owned = get_property_count(eco, uid, prop_type)
+    return round(tier["base_cost"] * (PROPERTY_COST_SCALING ** owned))
+
+
+def _apply_perk_stats(prop, tier):
+    """Return (gross, upkeep) for one day after applying the property's perk."""
+    perk = PROPERTY_PERKS.get(prop.get("perk"), {})
+    gross = tier["gross_per_day"] * perk.get("gross_mult", 1.0)
+    upkeep = tier["upkeep_per_day"] * perk.get("upkeep_mult", 1.0)
+    return gross, upkeep
+
+
+def _roll_property_event(prop):
+    """Roll an event for one day, respecting the property's perk modifiers."""
+    perk = PROPERTY_PERKS.get(prop.get("perk"), {})
+    immune = set(perk.get("immune", []))
+    disaster_mult = perk.get("disaster_mult", 1.0)
+    boom_mult = perk.get("boom_mult", 1.0)
+    for ev in PROPERTY_EVENTS:
+        if ev["id"] in immune:
+            continue
+        chance = ev["chance"] * (disaster_mult if ev["kind"] == "disaster" else boom_mult)
+        if random.random() < chance:
+            return ev
+    return None
+
+
+def _simulate_property_payouts(prop, tier, days, now_iso):
+    """Roll per-day events for `days` days. Returns (net_payout, event_log)."""
+    gross, upkeep = _apply_perk_stats(prop, tier)
+    value = tier["base_cost"]
+    total = 0
+    events = []
+    skip_until = prop.get("skip_until")
+    skip_until_dt = datetime.datetime.fromisoformat(skip_until) if skip_until else None
+    last_claim_dt = datetime.datetime.fromisoformat(prop["last_claim"])
+    for d in range(days):
+        day_dt = last_claim_dt + datetime.timedelta(days=d + 1)
+        if skip_until_dt and day_dt <= skip_until_dt:
+            events.append({"day": d + 1, "label": "Sabotaged — skipped", "emoji": "🛠️", "net": 0})
+            continue
+        ev = _roll_property_event(prop)
+        if ev is None:
+            net = round(gross - upkeep)
+            total += net
+            continue
+        if ev["kind"] == "boom":
+            net = round(gross * ev["payout_mult"] - upkeep)
+            total += net
+            events.append({"day": d + 1, "label": ev["label"], "emoji": ev["emoji"], "net": net})
+        else:
+            fine = round(value * ev.get("value_pct_fine", 0))
+            net = round(-upkeep - fine)
+            total += net
+            events.append({"day": d + 1, "label": ev["label"], "emoji": ev["emoji"], "net": net})
+    return total, events
+
+
+def collect_user_properties(user_id):
+    """Run a manual claim for every property the user owns.
+
+    Returns: (total_net, per_property_results, total_days)
+    per_property_results: list of {prop, tier, days, net, events}
+    """
+    eco = load_economy()
+    init_properties(eco)
+    uid = str(user_id)
+    props = eco["properties"].get(uid, [])
+    now = datetime.datetime.now(datetime.timezone.utc)
+    results = []
+    total_net = 0
+    total_days = 0
+    for prop in props:
+        tier = PROPERTY_TIERS.get(prop["type"])
+        if not tier:
+            continue
+        last_claim = datetime.datetime.fromisoformat(prop["last_claim"])
+        elapsed = (now - last_claim).total_seconds()
+        days = int(elapsed // 86400)
+        if days <= 0:
+            continue
+        net, events = _simulate_property_payouts(prop, tier, days, now.isoformat())
+        prop["last_claim"] = (last_claim + datetime.timedelta(days=days)).isoformat()
+        # Clear skip_until once we've passed it.
+        if prop.get("skip_until"):
+            su = datetime.datetime.fromisoformat(prop["skip_until"])
+            if su <= datetime.datetime.fromisoformat(prop["last_claim"]):
+                prop["skip_until"] = None
+        total_net += net
+        total_days += days
+        results.append({"prop": prop, "tier": tier, "days": days, "net": net, "events": events})
+    if total_net != 0:
+        eco["balances"][uid] = round(eco["balances"].get(uid, 0) + total_net, 2)
+    if results:
+        save_economy(eco)
+    return total_net, results, total_days
+
+
 def record_trivia_win(user_id):
     eco = load_economy()
     uid = str(user_id)
