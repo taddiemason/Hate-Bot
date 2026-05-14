@@ -394,6 +394,68 @@ class PropertyCog(commands.Cog):
                 f"You got **{payback:,} coins** in damages."
             )
 
+    @commands.command(name="propertyhelp", aliases=["realtyhelp"])
+    async def property_help(self, ctx):
+        page1 = (
+            "🏢 **Property Guide — Basics**\n\n"
+            "Property is passive income for coins. Buy a business, let it run, claim earnings every 24 hours.\n\n"
+            "**Core commands**\n"
+            "`!property` — Today's rotation + your owned properties.\n"
+            "`!property <tier>` — Detailed view of one tier's variants (e.g. `!property casino`).\n"
+            "`!buyproperty <tier> <perk>` — Buy a variant that's in today's rotation.\n"
+            "`!collect` — Claim accumulated earnings. Channel shows the total; the per-day event log is DMed.\n"
+            "`!sellproperty <tier> [perk]` — Sell one copy for **40%** of its purchase cost.\n"
+            "`!sabotage @user <tier>` — Attack someone else's property.\n\n"
+            "**Tiers** _(9 total, scaling cost)_\n"
+            "🍋 Lemonade Stand · 🚚 Food Truck · 🎣 Bait & Tackle · 🍕 Pizza Place · 💨 Vape Shop · "
+            "🏬 Strip Mall · 🚗 Used Car Lot · 🎰 Casino · ⛏️ Crypto Mine\n\n"
+            "Each tier has a base purchase cost. **Each additional copy of the same tier costs 1.5× more** "
+            "(so the 2nd Lemonade Stand is 7,500, the 3rd is 11,250, etc.). This keeps whales from buying 100 "
+            "Crypto Mines and breaking the economy.\n\n"
+            "_Page 1/3_"
+        )
+        page2 = (
+            "🏢 **Property Guide — Daily Rotation & Perks**\n\n"
+            "Every tier has a pool of **10 themed perk variants**. **5 of them rotate into availability per tier per day**, "
+            "refreshing at midnight America/New_York. You can only buy a variant that's currently in rotation.\n\n"
+            "Once you buy it, the perk is **permanent** — a Sunny Lemonade Stand stays Sunny forever, even after rotation moves on.\n\n"
+            "**Perk archetypes**\n"
+            "🌞 **Sunny** — +25% gross income\n"
+            "💸 **Lean** — −40% upkeep\n"
+            "📈 **Hot Spot** — +75% boom chance\n"
+            "🛡️ **Fortified** — −60% disaster chance\n"
+            "🏛️ **Tax Haven** — Immune to audits & lawsuits\n"
+            "🚒 **Insured** — Immune to fires & vandalism\n"
+            "🎢 **Volatile** — +40% gross, but +100% disaster chance\n"
+            "🧘 **Steady** — −60% disasters AND −60% booms (low variance)\n"
+            "💰 **Premium** — +15% gross AND −15% upkeep\n"
+            "🤖 **Automated** — −75% upkeep BUT −25% gross\n\n"
+            "Different perks suit different playstyles — Tax Haven on a Casino, Automated on a Crypto Mine, "
+            "Volatile when you want to gamble for big payouts.\n\n"
+            "_Page 2/3_"
+        )
+        page3 = (
+            "🏢 **Property Guide — Collection, Events & Sabotage**\n\n"
+            "**Manual collection**\n"
+            "Earnings accumulate at one payout per 24 hours per property. `!collect` settles every elapsed full day across "
+            "everything you own. If you go 5 days without collecting, you get ~5 days of payouts at once (with 5 independent "
+            "event rolls). Channel shows the net total; **a full per-day breakdown is DMed to you.**\n\n"
+            "**Random events** _(rolled per simulated day per property)_\n"
+            "Disasters:  🚨 Health inspector · 💀 Vandalism · 📋 Tax audit · ⚖️ Lawsuit · 🔥 Kitchen fire\n"
+            "Booms:  📱 Viral TikTok (2×) · 🎤 Celebrity sighting (3×) · 💎 Lucky day (1.5×)\n"
+            "Your perk shifts these odds. Audits/lawsuits also charge a fine equal to 5% of the property's base value.\n\n"
+            "**Sabotage**\n"
+            "`!sabotage @user <tier>` lets you attack someone's property for **10% of its base value** in coins. "
+            "**50% success rate** — on success, one random copy of that tier they own loses its next **3 payouts**. "
+            "On failure, the target gets a free day's earnings as compensation. 24-hour cooldown per attacker.\n\n"
+            "**Selling**\n"
+            "`!sellproperty <tier> [perk]` refunds **40%** of the most recent purchase cost for that tier. "
+            "Useful if you bought the wrong perk or need liquidity, but you take a 60% hit.\n\n"
+            "_Page 3/3_"
+        )
+        for page in (page1, page2, page3):
+            await ctx.send(page)
+
 
 async def setup(bot):
     await bot.add_cog(PropertyCog(bot))
