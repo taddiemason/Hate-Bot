@@ -25,33 +25,65 @@ async def _dm(user, text):
         pass
 
 
+def _normalize(s):
+    """Strip everything but ASCII alphanumerics and lowercase. Used for fuzzy tier/perk matching."""
+    return "".join(c for c in s.lower() if c.isalnum())
+
+
 def _resolve_tier_arg(arg):
-    """Match a tier key by exact key, partial key, or display name. Returns key or None."""
+    """Match a tier by key, display name, or any reasonable variation. Returns key or None."""
     if not arg:
         return None
-    a = arg.lower().replace(" ", "_").replace("-", "_")
-    if a in PROPERTY_TIERS:
-        return a
+    norm = _normalize(arg)
+    if not norm:
+        return None
+    # Exact match against normalized key or normalized display name
     for key, tier in PROPERTY_TIERS.items():
-        if tier["name"].lower() == arg.lower():
+        if _normalize(key) == norm or _normalize(tier["name"]) == norm:
             return key
-    # Partial match by key prefix
-    matches = [k for k in PROPERTY_TIERS if k.startswith(a)]
-    if len(matches) == 1:
-        return matches[0]
+    # Prefix match against either (ambiguous prefixes are rejected to avoid mis-buys)
+    key_matches = [k for k in PROPERTY_TIERS if _normalize(k).startswith(norm)]
+    name_matches = [k for k, t in PROPERTY_TIERS.items() if _normalize(t["name"]).startswith(norm)]
+    candidates = set(key_matches) | set(name_matches)
+    if len(candidates) == 1:
+        return next(iter(candidates))
     return None
 
 
 def _resolve_perk_arg(arg):
     if not arg:
         return None
-    a = arg.lower()
-    if a in PROPERTY_PERKS:
-        return a
+    norm = _normalize(arg)
+    if not norm:
+        return None
     for key, perk in PROPERTY_PERKS.items():
-        if perk["label"].lower() == a:
+        if _normalize(key) == norm or _normalize(perk["label"]) == norm:
             return key
     return None
+
+
+def _split_tier_and_perk(args):
+    """Parse '<tier> [perk]' where <tier> AND <perk> may both contain spaces or punctuation.
+
+    Strategy: try resolving the whole string as a tier first. If it works,
+    no perk was given. Otherwise scan every possible split point (peel
+    1 token off the end, then 2, etc.) and pick the first where the head
+    resolves to a tier AND the tail resolves to a perk.
+    """
+    if not args:
+        return None, None
+    args = args.strip()
+    full_tier = _resolve_tier_arg(args)
+    if full_tier:
+        return full_tier, None
+    tokens = args.split()
+    for i in range(len(tokens) - 1, 0, -1):
+        head = " ".join(tokens[:i])
+        tail = " ".join(tokens[i:])
+        tier_key = _resolve_tier_arg(head)
+        if tier_key and _resolve_perk_arg(tail):
+            return tier_key, tail
+    return None, None
 
 
 class PropertyCog(commands.Cog):
@@ -189,10 +221,13 @@ class PropertyCog(commands.Cog):
         await ctx.send("\n".join(lines))
 
     @commands.command(name="buyproperty")
-    async def buy_property(self, ctx, prop_type: str = None, perk_arg: str = None):
-        tier_key = _resolve_tier_arg(prop_type)
+    async def buy_property(self, ctx, *, args: str = None):
+        if not args:
+            await ctx.send("Usage: `!buyproperty <tier> [perk]`. See `!property` for what's in rotation.")
+            return
+        tier_key, perk_arg = _split_tier_and_perk(args)
         if not tier_key:
-            await ctx.send(f"Usage: `!buyproperty <tier> [perk]`. See `!property` for what's in rotation.")
+            await ctx.send("Usage: `!buyproperty <tier> [perk]`. See `!property` for what's in rotation.")
             return
 
         rotation, _ = get_property_rotation()
@@ -244,8 +279,11 @@ class PropertyCog(commands.Cog):
         )
 
     @commands.command(name="sellproperty")
-    async def sell_property(self, ctx, prop_type: str = None, perk_arg: str = None):
-        tier_key = _resolve_tier_arg(prop_type)
+    async def sell_property(self, ctx, *, args: str = None):
+        if not args:
+            await ctx.send("Usage: `!sellproperty <tier> [perk]` — sells one copy at 40% of its purchase cost.")
+            return
+        tier_key, perk_arg = _split_tier_and_perk(args)
         if not tier_key:
             await ctx.send("Usage: `!sellproperty <tier> [perk]` — sells one copy at 40% of its purchase cost.")
             return
@@ -315,7 +353,7 @@ class PropertyCog(commands.Cog):
         await _dm(ctx.author, "\n".join(dm_lines))
 
     @commands.command(name="sabotage")
-    async def sabotage(self, ctx, member: discord.Member = None, prop_type: str = None):
+    async def sabotage(self, ctx, member: discord.Member = None, *, prop_type: str = None):
         if not member or not prop_type:
             await ctx.send("Usage: `!sabotage @user <tier>` — 10% cost, 50% success, 24h cooldown.")
             return
