@@ -856,8 +856,9 @@ class StocksCog(commands.Cog):
         uid = str(target.id)
         holdings = eco.get("portfolios", {}).get(uid, {})
         shorts = eco.get("short_positions", {}).get(uid, {})
-        if not holdings and not shorts:
-            await ctx.send(f"**{target.display_name}** has no open positions. Use `!buystock` or `!short` to get in.")
+        properties = eco.get("properties", {}).get(uid, [])
+        if not holdings and not shorts and not properties:
+            await ctx.send(f"**{target.display_name}** has no open positions. Use `!buystock`, `!short`, or `!buyproperty` to get in.")
             return
         lines = [f"📈 **{target.display_name}'s Portfolio**\n"]
         total_value = 0.0
@@ -886,6 +887,28 @@ class StocksCog(commands.Cog):
                     f"  **${ticker}** — {pos['shares']:,} shares short @ ${pos['avg_price']:,.2f} | "
                     f"Now: ${price:,.2f} ({pct_str}) | Collateral: {pos['collateral']:,.0f} | P&L: **{_fmt_pnl(pnl)}**"
                 )
+        property_daily_total = 0
+        if properties:
+            lines.append("\n**Properties:**")
+            grouped = {}
+            for p in properties:
+                key = (p["type"], p.get("perk"))
+                grouped[key] = grouped.get(key, 0) + 1
+            for (ptype, perk_key), count in grouped.items():
+                tier = shared.PROPERTY_TIERS.get(ptype)
+                perk = shared.PROPERTY_PERKS.get(perk_key)
+                if not tier or not perk:
+                    continue
+                gross = tier["gross_per_day"] * perk.get("gross_mult", 1.0)
+                upkeep = tier["upkeep_per_day"] * perk.get("upkeep_mult", 1.0)
+                net_each = round(gross - upkeep)
+                net_total = net_each * count
+                property_daily_total += net_total
+                lines.append(
+                    f"  {tier['emoji']} **{perk['label']} {tier['name']}** ×{count} — "
+                    f"~{net_total:,}/day net ({net_each:,}/day each)"
+                )
+            lines.append(f"  _Expected daily revenue: **{property_daily_total:,} coins/day**_")
         lines.append(f"\n**Total Portfolio Value: {total_value:,.0f} coins**")
         await ctx.send("\n".join(lines))
 
