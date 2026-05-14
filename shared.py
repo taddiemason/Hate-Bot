@@ -1205,7 +1205,7 @@ PROPERTY_PERKS = {
     "automated": {"emoji": "🤖", "label": "Automated", "desc": "-75% upkeep BUT -25% gross",        "upkeep_mult": 0.25, "gross_mult": 0.75},
 }
 
-PROPERTY_VARIANTS_PER_DAY = 5  # how many perks rotate into availability per tier per day
+PROPERTY_VARIANTS_PER_DAY = 1  # how many perks rotate into availability per tier per day
 
 
 def _variant_id(tier_key, perk_key):
@@ -1249,7 +1249,10 @@ def get_property_rotation():
         eco["property_rotation_expires"] = next_expiry_utc.isoformat()
         save_economy(eco)
         return rotation, next_expiry_utc
-    return eco["property_rotation"], expires
+    stored = eco["property_rotation"]
+    # Truncate stored rotation if a prior config picked more perks per tier than today's setting.
+    trimmed = {k: list(v)[:PROPERTY_VARIANTS_PER_DAY] for k, v in stored.items()}
+    return trimmed, expires
 
 
 def get_property_count(eco, uid, prop_type):
