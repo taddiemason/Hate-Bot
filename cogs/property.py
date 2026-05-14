@@ -139,7 +139,7 @@ class PropertyCog(commands.Cog):
                     f"  {tier['emoji']} **{tier['name']}** — {cost:,} coins · {perk_str}{owned_str}"
                 )
             lines.append(
-                "\n`!buyproperty <tier> <perk>` to purchase. `!collect` to claim. "
+                "\n`!buyproperty <tier>` to purchase today's variant. `!collect` to claim. "
                 "`!sellproperty <tier> [perk]` to sell. `!sabotage @user <tier>` to attack."
             )
 
@@ -184,7 +184,7 @@ class PropertyCog(commands.Cog):
             net = gross - upkeep
             lines.append(
                 f"**{perk['label']}** — _{perk['desc']}_\n"
-                f"~{net:,}/day net → `!buyproperty {tier_key} {perk_key}`"
+                f"~{net:,}/day net → `!buyproperty {tier_key}`"
             )
         await ctx.send("\n".join(lines))
 
@@ -192,17 +192,24 @@ class PropertyCog(commands.Cog):
     async def buy_property(self, ctx, prop_type: str = None, perk_arg: str = None):
         tier_key = _resolve_tier_arg(prop_type)
         if not tier_key:
-            await ctx.send(f"Usage: `!buyproperty <tier> <perk>`. See `!property` for what's in rotation.")
-            return
-        perk_key = _resolve_perk_arg(perk_arg)
-        if not perk_key:
-            await ctx.send(
-                f"Specify which perk variant to buy. Run `!property {tier_key}` to see today's variants for that tier."
-            )
+            await ctx.send(f"Usage: `!buyproperty <tier> [perk]`. See `!property` for what's in rotation.")
             return
 
         rotation, _ = get_property_rotation()
-        if perk_key not in rotation.get(tier_key, []):
+        todays_perks = rotation.get(tier_key, [])
+
+        if perk_arg:
+            perk_key = _resolve_perk_arg(perk_arg)
+            if not perk_key:
+                await ctx.send(f"Unknown perk `{perk_arg}`. Run `!property {tier_key}` to see today's variant.")
+                return
+        else:
+            if not todays_perks:
+                await ctx.send(f"No variant is in rotation for **{PROPERTY_TIERS[tier_key]['name']}** today.")
+                return
+            perk_key = todays_perks[0]
+
+        if perk_key not in todays_perks:
             await ctx.send(
                 f"**{PROPERTY_PERKS[perk_key]['label']} {PROPERTY_TIERS[tier_key]['name']}** isn't in today's rotation. "
                 f"Run `!property {tier_key}` to see what is."
@@ -400,7 +407,7 @@ class PropertyCog(commands.Cog):
             "**Core commands**\n"
             "`!property` — Today's rotation + your owned properties.\n"
             "`!property <tier>` — Detailed view of one tier's variants (e.g. `!property casino`).\n"
-            "`!buyproperty <tier> <perk>` — Buy a variant that's in today's rotation.\n"
+            "`!buyproperty <tier> [perk]` — Buy today's variant for that tier (the `<perk>` arg is optional since only one variant rotates per tier per day).\n"
             "`!collect` — Claim accumulated earnings. Channel shows the total; the per-day event log is DMed.\n"
             "`!sellproperty <tier> [perk]` — Sell one copy for **40%** of its purchase cost.\n"
             "`!sabotage @user <tier>` — Attack someone else's property.\n\n"
