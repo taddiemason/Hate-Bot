@@ -10,7 +10,7 @@ from shared import (
     get_guild_config, is_donovan, is_double_coin_day, get_daily_reward,
     get_shop_rotation, consume_upgrade, claim_bounties,
     is_insurance_active, record_trivia_win, init_market, init_derivatives,
-    get_portfolio_value, _t, resolve_member_name,
+    get_portfolio_value, get_property_liquidation_value, _t, resolve_member_name,
 )
 
 class EconomyCog(commands.Cog):
@@ -209,7 +209,8 @@ class EconomyCog(commands.Cog):
                 for o in eco["options"].get(uid, [])
                 if not o.get("exercised") and o["ticker"] in eco["market"]
             )
-            return round(cash + portfolio + futures_pnl + options_val, 2)
+            property_val = get_property_liquidation_value(eco, uid)
+            return round(cash + portfolio + futures_pnl + options_val + property_val, 2)
 
         top = sorted(eco["balances"].keys(), key=net_worth, reverse=True)[:5]
         lines = []
