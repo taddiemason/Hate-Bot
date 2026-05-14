@@ -1047,6 +1047,31 @@ def get_portfolio_value(eco, uid):
     return round(total, 2)
 
 
+def get_property_liquidation_value(eco, uid):
+    """Conservative net-worth contribution from owned properties.
+
+    Each copy of a tier costs base * 1.5^(n-1) where n is its purchase order.
+    Total cost across N copies of a tier is the sum of that geometric series.
+    Liquidation value is PROPERTY_SELL_REFUND_PCT (40%) of that total.
+    """
+    props = eco.get("properties", {}).get(str(uid), [])
+    if not props:
+        return 0
+    count_by_tier = {}
+    for p in props:
+        count_by_tier[p["type"]] = count_by_tier.get(p["type"], 0) + 1
+    total = 0.0
+    for tier_key, n in count_by_tier.items():
+        tier = PROPERTY_TIERS.get(tier_key)
+        if not tier:
+            continue
+        base = tier["base_cost"]
+        scale = PROPERTY_COST_SCALING
+        tier_cost_sum = base * (scale ** n - 1) / (scale - 1)
+        total += tier_cost_sum * PROPERTY_SELL_REFUND_PCT
+    return round(total, 2)
+
+
 def init_derivatives(eco):
     eco.setdefault("futures", {})
     eco.setdefault("options", {})
