@@ -1363,12 +1363,11 @@ def collect_user_properties(user_id):
         if not tier:
             continue
         last_claim = datetime.datetime.fromisoformat(prop["last_claim"])
-        elapsed = (now - last_claim).total_seconds()
-        days = int(elapsed // 86400)
+        days = (now.date() - last_claim.date()).days
         if days <= 0:
             continue
         net, events = _simulate_property_payouts(prop, tier, days, now.isoformat())
-        prop["last_claim"] = (last_claim + datetime.timedelta(days=days)).isoformat()
+        prop["last_claim"] = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         # Clear skip_until once we've passed it.
         if prop.get("skip_until"):
             su = datetime.datetime.fromisoformat(prop["skip_until"])

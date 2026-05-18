@@ -141,7 +141,7 @@ class PropertyCog(commands.Cog):
                 sabotaged = 0
                 for p in plist:
                     last = datetime.datetime.fromisoformat(p["last_claim"])
-                    days = int((now - last).total_seconds() // 86400)
+                    days = (now.date() - last.date()).days
                     pending = max(pending, days)
                     if p.get("skip_until"):
                         su = datetime.datetime.fromisoformat(p["skip_until"])
