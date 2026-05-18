@@ -302,6 +302,12 @@ class StocksCog(commands.Cog):
             momentum_tilt = ((history[-1] / history[0] - 1) if len(history) >= 2 else 0.0) * 0.15
             p_buy = max(0.15, min(0.85, 0.5 + sentiment * 0.15 + mr_tilt + momentum_tilt))
 
+            # Circuit breaker: force buying pressure when severely below base
+            if price < base * 0.10:
+                p_buy = 0.85
+            elif price < base * 0.20:
+                p_buy = max(p_buy, 0.70)
+
             buy_vol  = round(tick_vol * p_buy)
             sell_vol = tick_vol - buy_vol
 
@@ -311,7 +317,9 @@ class StocksCog(commands.Cog):
             noise_pct  = random.gauss(0, vol * 0.25)
             total_pct  = max(-15.0, min(15.0, volume_pct + noise_pct))
 
-            new_price = max(round(price * (1 + total_pct / 100), 2), 0.01)
+            # Floor at 5% of base so % changes stay meaningful and recovery is possible
+            min_price = max(0.01, round(base * 0.05, 2))
+            new_price = max(round(price * (1 + total_pct / 100), 2), min_price)
             mdata["price_history"]  = (history + [new_price])[-49:]
             mdata["prev_price"]     = price
             mdata["price"]          = new_price
