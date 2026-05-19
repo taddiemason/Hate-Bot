@@ -73,6 +73,64 @@ def _calc_payout(amount, american_odds):
         return round(amount + amount * (100 / abs(american_odds)))
 
 
+async def _fetch_live_scores(sport_labels):
+    """Fetch in-progress game scores from ESPN for the given sports.
+
+    Returns a dict keyed by (home_name, away_name) ->
+      {"home_score", "away_score", "detail", "clock", "sport"}
+    """
+    results = {}
+    async with aiohttp.ClientSession() as session:
+        for sport_label in sport_labels:
+            path = ESPN_PATHS.get(sport_label)
+            if not path:
+                continue
+            try:
+                async with session.get(f"{ESPN_BASE}/{path}/scoreboard") as resp:
+                    if resp.status != 200:
+                        continue
+                    data = await resp.json()
+            except Exception:
+                continue
+
+            for event in data.get("events", []):
+                status = event.get("status", {})
+                state = status.get("type", {}).get("state", "")
+                if state != "in":
+                    continue
+                detail = status.get("type", {}).get("detail", "Live")
+                clock = status.get("displayClock", "")
+                competition = (event.get("competitions") or [{}])[0]
+                competitors = competition.get("competitors", [])
+
+                if sport_label == "UFC":
+                    names = [
+                        (c.get("athlete") or c.get("team") or {}).get("displayName", "?")
+                        for c in competitors
+                    ]
+                    if len(names) >= 2:
+                        results[(names[0], names[1])] = {
+                            "home_score": None, "away_score": None,
+                            "detail": detail, "clock": "", "sport": sport_label,
+                        }
+                else:
+                    home_c = next((c for c in competitors if c.get("homeAway") == "home"), None)
+                    away_c = next((c for c in competitors if c.get("homeAway") == "away"), None)
+                    if not home_c or not away_c:
+                        continue
+                    try:
+                        hs = int(float(home_c.get("score", 0)))
+                        as_ = int(float(away_c.get("score", 0)))
+                    except (TypeError, ValueError):
+                        hs = as_ = 0
+                    key = (home_c["team"]["displayName"], away_c["team"]["displayName"])
+                    results[key] = {
+                        "home_score": hs, "away_score": as_,
+                        "detail": detail, "clock": clock, "sport": sport_label,
+                    }
+    return results
+
+
 def _parse_event(game, sport_label, eco):
     """Upsert a game from The Odds API into eco['sports_events']. Returns (short_id, event)."""
     api_id = game["id"]
@@ -543,6 +601,7 @@ class SportsCog(commands.Cog):
         _init_sports(eco)
         uid = str(ctx.author.id)
         all_bets = eco["sports_bets"].get(uid, [])
+        now = datetime.datetime.now(datetime.timezone.utc)
 
         show = all_bets if status.lower() == "all" else [b for b in all_bets if not b["settled"]]
         if not show:
@@ -550,6 +609,16 @@ class SportsCog(commands.Cog):
                 "No sports bets found. Use `!bet` to place one, or `!mybets all` to see history."
             )
             return
+
+        # Fetch live scores for sports with in-progress open bets
+        open_sports = {
+            eco["sports_events"][b["game_id"]]["sport"]
+            for b in show if not b["settled"]
+            and b["game_id"] in eco["sports_events"]
+            and not eco["sports_events"][b["game_id"]]["settled"]
+            and _parse_dt(eco["sports_events"][b["game_id"]]["commence_time"]) <= now
+        }
+        live = await _fetch_live_scores(open_sports) if open_sports else {}
 
         lines = [f"🎰 **{ctx.author.display_name}'s Bets** ({status})\n"]
         for bet in show[-15:]:
@@ -566,14 +635,92 @@ class SportsCog(commands.Cog):
                 else:
                     result = f"LOST -{bet['amount']:,} ❌"
             else:
-                result = f"open — {_calc_payout(bet['amount'], bet['odds']):,} to win"
+                live_data = live.get((ev.get("home", ""), ev.get("away", "")))
+                if live_data:
+                    hs, as_ = live_data["home_score"], live_data["away_score"]
+                    period = live_data["detail"]
+                    clock = live_data["clock"]
+                    if hs is not None:
+                        score_str = f"{ev.get('away','?')} **{as_}** – **{hs}** {ev.get('home','?')}"
+                        time_str = f"{period} {clock}".strip()
+                        result = f"🔴 LIVE {score_str} _{time_str}_ | {_calc_payout(bet['amount'], bet['odds']):,} to win"
+                    else:
+                        result = f"🔴 LIVE {period} | {_calc_payout(bet['amount'], bet['odds']):,} to win"
+                else:
+                    result = f"open — {_calc_payout(bet['amount'], bet['odds']):,} to win"
 
             lines.append(
                 f"**#{bet['id']}** {matchup} | {mk_label} {pick_display} {_fmt_odds(bet['odds'])} | "
                 f"{bet['amount']:,} wagered | {result}"
             )
 
-        lines.append("\n`!cancelsportsbet <id>` to cancel an open bet before game start")
+        lines.append("\n`!livescores` for all live games · `!cancelsportsbet <id>` to cancel before start")
+        await ctx.send("\n".join(lines)[:1990])
+
+    # ── !livescores ───────────────────────────────────────────────────────────
+
+    @commands.command(name="livescores")
+    async def live_scores_cmd(self, ctx):
+        """Show live scores for all games with active bets."""
+        eco = load_economy()
+        _init_sports(eco)
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        # All sports that have started but unsettled events
+        active_sports = {
+            ev["sport"]
+            for ev in eco["sports_events"].values()
+            if not ev["settled"] and _parse_dt(ev["commence_time"]) <= now
+        }
+        if not active_sports:
+            await ctx.send("No games have started yet. Check `!odds` for upcoming matchups.")
+            return
+
+        live = await _fetch_live_scores(active_sports)
+        if not live:
+            await ctx.send("No games are currently in progress. Results will post automatically when games finish.")
+            return
+
+        # Count open bets and coins wagered per event
+        bet_counts, bet_coins = {}, {}
+        for bets in eco["sports_bets"].values():
+            for b in bets:
+                if not b["settled"]:
+                    gid = b["game_id"]
+                    bet_counts[gid] = bet_counts.get(gid, 0) + 1
+                    bet_coins[gid] = bet_coins.get(gid, 0) + b["amount"]
+
+        # Map stored events by (home, away) for bet count lookup
+        events_by_teams = {
+            (ev["home"], ev["away"]): (sid, ev)
+            for sid, ev in eco["sports_events"].items()
+        }
+
+        lines = ["📺 **Live Scores**\n"]
+        for (home_name, away_name), data in live.items():
+            emoji = SPORT_EMOJI.get(data["sport"], "🏆")
+            period = data["detail"]
+            clock = data["clock"]
+            time_str = f"{period} {clock}".strip()
+
+            if data["home_score"] is not None:
+                hs, as_ = data["home_score"], data["away_score"]
+                score_str = f"**{as_} – {hs}**"
+                line = f"{emoji} {away_name} {score_str} {home_name} _{time_str}_"
+            else:
+                line = f"{emoji} {away_name} vs {home_name} — _{time_str}_"
+
+            matched = events_by_teams.get((home_name, away_name))
+            if matched:
+                sid, _ = matched
+                count = bet_counts.get(sid, 0)
+                coins = bet_coins.get(sid, 0)
+                if count:
+                    line += f"  |  #{sid} · {count} bet{'s' if count != 1 else ''} · {coins:,} coins at risk"
+
+            lines.append(line)
+
+        lines.append("\n`!mybets` to see your bets with live scores")
         await ctx.send("\n".join(lines)[:1990])
 
     # ── !cancelsportsbet ──────────────────────────────────────────────────────
