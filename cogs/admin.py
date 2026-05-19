@@ -258,15 +258,26 @@ class AdminCog(commands.Cog):
             "**`!myoptions`** — View your open options."
         )
         await ctx.send(
-            f"**📋 {tn} Hate Bot — Commands (4/4)**\n\n"
+            f"**📋 {tn} Hate Bot — Commands (4/5)**\n\n"
             "**🏢 Property**\n"
             "**`!propertyhelp`** — 3-page guide to the property system.\n"
             "**`!property`** — View today's rotation (1 perk variant per tier, rotates daily) and your owned properties.\n"
             "**`!property <tier>`** — Detailed view of today's variant for one tier.\n"
             "**`!buyproperty <tier> [perk]`** — Buy today's variant for that tier (or specify the perk explicitly). Each additional copy of the same tier costs 1.5x more.\n"
             "**`!sellproperty <tier> [perk]`** — Sell one copy for 40% of its purchase cost.\n"
-            "**`!collect`** — Claim accumulated property earnings (paid per 24h elapsed). Detailed breakdown is DMed.\n"
-            "**`!sabotage @user <tier>`** — Sabotage someone's property (10% cost, 50% success, 24h cooldown).\n\n"
+            "**`!collect`** — Claim accumulated property earnings (resets at midnight). Detailed breakdown is DMed.\n"
+            "**`!sabotage @user <tier>`** — Sabotage someone's property (10% cost, 50% success, 24h cooldown)."
+        )
+        await ctx.send(
+            f"**📋 {tn} Hate Bot — Commands (5/5)**\n\n"
+            "**🎰 Sports Betting**\n"
+            "**`!sportsbook`** — Overview of all open events, open bets, and total coins at risk.\n"
+            "**`!odds [NFL|NBA|MLB|NHL]`** — Live betting lines for upcoming games (moneyline, spread, over/under). Filter by sport or see all.\n"
+            "**`!bet <#> <ml|spread|total> <home|away|over|under> <coins>`** — Place a bet on a game. Coins are held until the game settles.\n"
+            "  _Examples: `!bet 3 ml away 500` · `!bet 3 spread home 200` · `!bet 3 total over 100`_\n"
+            "**`!mybets`** — View your open bets and potential payouts.\n"
+            "**`!mybets all`** — Full bet history including settled results.\n"
+            "**`!cancelsportsbet <id>`** — Cancel an open bet before the game starts (full refund).\n\n"
             "**`!commands`** — Shows this list."
         )
 

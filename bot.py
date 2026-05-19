@@ -19,7 +19,7 @@ intents.message_content = True
 intents.members = True
 intents.presences = True
 
-EXTENSIONS = ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.property", "cogs.admin")
+EXTENSIONS = ("cogs.roast", "cogs.economy", "cogs.games", "cogs.stocks", "cogs.property", "cogs.admin", "cogs.sports")
 
 
 class HateBot(commands.Bot):
