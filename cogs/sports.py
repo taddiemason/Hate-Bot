@@ -856,7 +856,17 @@ class SportsCog(commands.Cog):
             ev = eco["sports_events"].get(bet["game_id"], {})
             matchup = f"{ev.get('away', '?')} @ {ev.get('home', '?')}" if ev else f"Game #{bet['game_id']}"
             mk_label = MARKET_LABEL.get(bet["market"], bet["market"])
-            pick_display = bet["selection"].capitalize()
+            sel = bet["selection"]
+            if ev and bet["market"] in ("h2h", "spreads"):
+                pick_display = ev.get("home") if sel == "home" else ev.get("away")
+                if bet["market"] == "spreads" and ev.get("odds", {}).get("spreads"):
+                    line = ev["odds"]["spreads"].get(sel, {}).get("line", "")
+                    pick_display = f"{pick_display} {_fmt_line(line)}" if line != "" else pick_display
+            elif bet["market"] == "totals" and ev:
+                line = ev.get("odds", {}).get("totals", {}).get("line", "")
+                pick_display = f"{sel.capitalize()} {line}" if line != "" else sel.capitalize()
+            else:
+                pick_display = sel.capitalize()
 
             if bet["settled"]:
                 if bet["won"] is None:
