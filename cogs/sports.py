@@ -47,8 +47,10 @@ MARKET_LABEL = {"h2h": "ML", "spreads": "Spread", "totals": "Total"}
 def _init_sports(eco):
     eco.setdefault("sports_events", {})
     eco.setdefault("sports_bets", {})
+    eco.setdefault("sports_parlays", {})
     eco.setdefault("next_sports_event_id", 1)
     eco.setdefault("next_sports_bet_id", 1)
+    eco.setdefault("next_sports_parlay_id", 1)
 
 
 def _parse_dt(iso_str):
@@ -71,6 +73,111 @@ def _calc_payout(amount, american_odds):
         return round(amount + amount * (american_odds / 100))
     else:
         return round(amount + amount * (100 / abs(american_odds)))
+
+
+def _to_decimal(american):
+    return (american / 100 + 1) if american > 0 else (100 / abs(american) + 1)
+
+
+def _to_american(decimal):
+    if decimal >= 2.0:
+        return round((decimal - 1) * 100)
+    return round(-100 / (decimal - 1))
+
+
+def _parlay_combined_odds(legs):
+    """Return (decimal_product, american_odds) for the active (non-push) legs."""
+    active = [l for l in legs if l.get("result") != "push"]
+    decimal = 1.0
+    for leg in active:
+        decimal *= _to_decimal(leg["odds"])
+    return decimal, _to_american(decimal)
+
+
+def _settle_parlays(eco, settled_sid):
+    """Resolve any parlay legs tied to settled_sid. Returns notification tuples."""
+    event = eco["sports_events"].get(settled_sid)
+    if not event or not event.get("settled"):
+        return []
+
+    results = []
+    for uid, parlays in eco.get("sports_parlays", {}).items():
+        for parlay in parlays:
+            if parlay["settled"]:
+                continue
+            changed = False
+            for leg in parlay["legs"]:
+                if leg["game_id"] != settled_sid or leg.get("result"):
+                    continue
+                outcome = _determine_outcome(leg, event, event["home_score"], event["away_score"])
+                leg["result"] = "push" if outcome is None else ("win" if outcome else "loss")
+                changed = True
+
+            if not changed:
+                continue
+
+            lost = [l for l in parlay["legs"] if l.get("result") == "loss"]
+            pending_legs = [l for l in parlay["legs"] if not l.get("result")]
+
+            if lost:
+                parlay["settled"] = True
+                parlay["won"] = False
+                parlay["payout"] = 0
+                results.append((uid, parlay))
+            elif not pending_legs:
+                wins = [l for l in parlay["legs"] if l.get("result") == "win"]
+                if not wins:
+                    # All pushed — full refund
+                    payout = parlay["amount"]
+                    parlay["settled"] = True
+                    parlay["won"] = None
+                    parlay["payout"] = payout
+                else:
+                    decimal, _ = _parlay_combined_odds(parlay["legs"])
+                    payout = round(parlay["amount"] * decimal)
+                    parlay["settled"] = True
+                    parlay["won"] = True
+                    parlay["payout"] = payout
+                eco["balances"][uid] = round(eco["balances"].get(uid, 0) + parlay["payout"], 2)
+                results.append((uid, parlay))
+
+    return results
+
+
+def _sports_leaderboard_stats(eco):
+    """Return list of (uid, stats_dict) sorted by net profit descending."""
+    stats = {}
+
+    for uid, bets in eco.get("sports_bets", {}).items():
+        settled = [b for b in bets if b.get("settled") and b.get("won") is not None]
+        if not settled:
+            continue
+        wagered = sum(b["amount"] for b in settled)
+        payouts = sum(b.get("payout", 0) for b in settled)
+        wins = sum(1 for b in settled if b["won"] is True)
+        stats.setdefault(uid, {"wagered": 0, "payout": 0, "wins": 0, "total": 0})
+        stats[uid]["wagered"] += wagered
+        stats[uid]["payout"] += payouts
+        stats[uid]["wins"] += wins
+        stats[uid]["total"] += len(settled)
+
+    for uid, parlays in eco.get("sports_parlays", {}).items():
+        settled = [p for p in parlays if p.get("settled") and p.get("won") is not None]
+        if not settled:
+            continue
+        stats.setdefault(uid, {"wagered": 0, "payout": 0, "wins": 0, "total": 0})
+        for p in settled:
+            stats[uid]["wagered"] += p["amount"]
+            stats[uid]["payout"] += p.get("payout", 0)
+            stats[uid]["total"] += 1
+            if p["won"] is True:
+                stats[uid]["wins"] += 1
+
+    for uid, s in stats.items():
+        s["net"] = s["payout"] - s["wagered"]
+        s["win_pct"] = round(s["wins"] / s["total"] * 100, 1) if s["total"] else 0
+
+    return sorted(stats.items(), key=lambda x: x[1]["net"], reverse=True)
 
 
 async def _fetch_live_scores(sport_labels):
@@ -155,6 +262,7 @@ def _parse_event(game, sport_label, eco):
         "away_score": None,
         "odds": {},
         "settled": False,
+        "start_notified": False,
     }
     _update_odds(event, game)
     eco["sports_events"][short_id] = event
@@ -270,11 +378,13 @@ class SportsCog(commands.Cog):
     async def cog_load(self):
         if ODDS_API_KEY:
             self.fetch_odds_task.start()
-        self.settle_bets_task.start()  # ESPN needs no key
+        self.settle_bets_task.start()
+        self.game_start_notifier.start()
 
     async def cog_unload(self):
         self.fetch_odds_task.cancel()
         self.settle_bets_task.cancel()
+        self.game_start_notifier.cancel()
 
     # ── Background: refresh odds every 6 hours ────────────────────────────────
 
@@ -340,6 +450,8 @@ class SportsCog(commands.Cog):
         }
 
         settlement_results = []
+        parlay_results = []
+        settled_sids = set()
         today = now.strftime("%Y%m%d")
         yesterday = (now - datetime.timedelta(days=1)).strftime("%Y%m%d")
 
@@ -382,6 +494,7 @@ class SportsCog(commands.Cog):
                                         away_score = 0.0 if name == home_name else 1.0
                                         results = _settle_event(eco, sid, home_score, away_score)
                                         settlement_results.extend(results)
+                                        settled_sids.add(sid)
                                         pending.pop(key, None)
                                         break
                         else:
@@ -403,13 +516,23 @@ class SportsCog(commands.Cog):
                                 continue
                             results = _settle_event(eco, sid, home_score, away_score)
                             settlement_results.extend(results)
+                            settled_sids.add(sid)
                             pending.pop((home_name, away_name), None)
+
+        for sid in settled_sids:
+            parlay_results.extend(_settle_parlays(eco, sid))
 
         save_economy(eco)
 
         guild_channels = _get_guild_channels()
         for uid, bet, event, won, payout in settlement_results:
             emoji = SPORT_EMOJI.get(event["sport"], "🏆")
+            score_str = ""
+            if event.get("home_score") is not None and event.get("sport") not in MONEYLINE_ONLY:
+                score_str = f" (**{int(event['away_score'])}–{int(event['home_score'])}** final)"
+            elif event.get("sport") in MONEYLINE_ONLY and event.get("home_score") is not None:
+                winner = event["home"] if event["home_score"] > event["away_score"] else event["away"]
+                score_str = f" ({winner} wins)"
             for gid, ch in guild_channels:
                 member = ch.guild.get_member(int(uid))
                 if not member:
@@ -422,12 +545,120 @@ class SportsCog(commands.Cog):
                     outcome = f"**LOST** — **{bet['amount']:,} coins** gone 😢"
                 await ch.send(
                     f"{emoji} {member.mention} Bet **#{bet['id']}** settled: "
-                    f"**{event['away']} @ {event['home']}** — {outcome}"
+                    f"**{event['away']} @ {event['home']}**{score_str} — {outcome}"
+                )
+                break
+
+        for uid, parlay in parlay_results:
+            for gid, ch in guild_channels:
+                member = ch.guild.get_member(int(uid))
+                if not member:
+                    continue
+                payout = parlay["payout"]
+                won = parlay["won"]
+                if won is None:
+                    outcome = f"**PUSH** — **{payout:,} coins** refunded"
+                elif won:
+                    _, combined_american = _parlay_combined_odds(parlay["legs"])
+                    outcome = f"**WON** — +**{payout:,} coins** 🎉 ({_fmt_odds(combined_american)} parlay)"
+                else:
+                    lost_leg = next((l for l in parlay["legs"] if l.get("result") == "loss"), None)
+                    busted_on = f" (busted on: {lost_leg['matchup']})" if lost_leg else ""
+                    outcome = f"**LOST** — **{parlay['amount']:,} coins** gone 😢{busted_on}"
+                leg_count = len(parlay["legs"])
+                await ch.send(
+                    f"🎰 {member.mention} **{leg_count}-leg parlay #{parlay['id']}** settled — {outcome}"
                 )
                 break
 
     @settle_bets_task.before_loop
     async def before_settle(self):
+        await self.bot.wait_until_ready()
+
+    # ── Background: notify channel when a bet-active game kicks off ───────────
+
+    @tasks.loop(minutes=3)
+    async def game_start_notifier(self):
+        eco = load_economy()
+        _init_sports(eco)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        guild_channels = _get_guild_channels()
+        if not guild_channels:
+            return
+
+        changed = False
+        for sid, ev in eco["sports_events"].items():
+            if ev.get("settled") or ev.get("start_notified"):
+                continue
+            if _parse_dt(ev["commence_time"]) > now:
+                continue
+
+            # Gather all straight bets on this game
+            straight = [
+                (uid, bet)
+                for uid, bets in eco.get("sports_bets", {}).items()
+                for bet in bets
+                if bet["game_id"] == sid and not bet["settled"]
+            ]
+            # Gather parlay legs on this game
+            parlay_legs = [
+                (uid, parlay, leg)
+                for uid, parlays in eco.get("sports_parlays", {}).items()
+                for parlay in parlays if not parlay["settled"]
+                for leg in parlay["legs"]
+                if leg["game_id"] == sid and not leg.get("result")
+            ]
+
+            ev["start_notified"] = True
+            changed = True
+
+            if not straight and not parlay_legs:
+                continue  # no bets on this game — mark notified but stay quiet
+
+            total_coins = sum(b["amount"] for _, b in straight) + sum(
+                p["amount"] for _, p, _ in parlay_legs
+            )
+            emoji = SPORT_EMOJI.get(ev["sport"], "🏆")
+            commence_et = _parse_dt(ev["commence_time"]).astimezone(ZoneInfo("America/New_York"))
+
+            for gid, ch in guild_channels:
+                # Per-bettor summary (deduplicated by uid)
+                seen = {}
+                for uid, bet in straight:
+                    if uid not in seen:
+                        seen[uid] = []
+                    mk = MARKET_LABEL.get(bet["market"], bet["market"])
+                    team = ev["home"] if bet["selection"] == "home" else ev["away"]
+                    pick = f"{mk} {team}" if bet["market"] == "h2h" else f"{mk} {bet['selection'].capitalize()}"
+                    seen[uid].append(f"{pick} {_fmt_odds(bet['odds'])} ({bet['amount']:,})")
+                for uid, parlay, leg in parlay_legs:
+                    if uid not in seen:
+                        seen[uid] = []
+                    seen[uid].append(f"{leg['pick_label']} [parlay #{parlay['id']}]")
+
+                lines = [
+                    f"{emoji} **KICKOFF** — **{ev['away']} @ {ev['home']}** (#{sid})",
+                    f"⏰ {commence_et.strftime('%a %b %-d %-I:%M %p ET')} · 💰 {total_coins:,} coins at risk",
+                ]
+                if "h2h" in ev["odds"]:
+                    h = ev["odds"]["h2h"]
+                    lines.append(
+                        f"  ML: {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
+                    )
+                for uid, picks in list(seen.items())[:8]:
+                    member = ch.guild.get_member(int(uid))
+                    name = member.mention if member else f"<@{uid}>"
+                    lines.append(f"  {name}: {' · '.join(picks)}")
+                if len(seen) > 8:
+                    lines.append(f"  _...and {len(seen) - 8} more_")
+
+                await ch.send("\n".join(lines))
+
+        if changed:
+            save_economy(eco)
+
+    @game_start_notifier.before_loop
+    async def before_start_notifier(self):
         await self.bot.wait_until_ready()
 
     # ── !odds ─────────────────────────────────────────────────────────────────
@@ -656,6 +887,188 @@ class SportsCog(commands.Cog):
 
         lines.append("\n`!livescores` for all live games · `!cancelsportsbet <id>` to cancel before start")
         await ctx.send("\n".join(lines)[:1990])
+
+    # ── !parlay ───────────────────────────────────────────────────────────────
+
+    @commands.command(name="parlay")
+    async def parlay_cmd(self, ctx, amount: int = None, *legs_raw: str):
+        """Combine 2–6 legs into one bet. Usage: !parlay <coins> <game:market:pick> ..."""
+        if not amount or amount <= 0 or len(legs_raw) < 2:
+            await ctx.send(
+                "Usage: `!parlay <coins> <game:market:pick> [game:market:pick] ...` (2–6 legs)\n"
+                "Example: `!parlay 500 3:ml:home 5:total:over 7:ml:away`\n"
+                "See `!odds` for game numbers."
+            )
+            return
+        if len(legs_raw) > 6:
+            await ctx.send("Maximum 6 legs per parlay.")
+            return
+
+        eco = load_economy()
+        _init_sports(eco)
+        uid = str(ctx.author.id)
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        parsed_legs = []
+        for raw in legs_raw:
+            parts = raw.split(":")
+            if len(parts) != 3:
+                await ctx.send(f"Bad leg format `{raw}` — use `game:market:pick` e.g. `3:ml:home`.")
+                return
+            game_id, market_raw, pick_raw = parts
+            market_key = MARKET_ALIASES.get(market_raw.lower())
+            if not market_key:
+                await ctx.send(f"Unknown market `{market_raw}` in leg `{raw}`. Use `ml`, `spread`, or `total`.")
+                return
+            pick = pick_raw.lower()
+            event = eco["sports_events"].get(game_id)
+            if not event or event["settled"]:
+                await ctx.send(f"Game **#{game_id}** not found or already settled.")
+                return
+            if _parse_dt(event["commence_time"]) <= now:
+                await ctx.send(f"Game **#{game_id}** has already started — can't include it in a parlay.")
+                return
+            if event.get("sport") in MONEYLINE_ONLY and market_key != "h2h":
+                await ctx.send(f"Game **#{game_id}** (UFC) only supports `ml` bets.")
+                return
+            if market_key in ("h2h", "spreads") and pick not in ("home", "away"):
+                await ctx.send(f"Leg `{raw}`: pick must be `home` or `away` for `{market_raw}`.")
+                return
+            if market_key == "totals" and pick not in ("over", "under"):
+                await ctx.send(f"Leg `{raw}`: pick must be `over` or `under` for `total`.")
+                return
+            if market_key not in event["odds"]:
+                await ctx.send(f"No **{MARKET_LABEL[market_key]}** line for game **#{game_id}**.")
+                return
+
+            if market_key == "h2h":
+                odds = event["odds"]["h2h"][pick]
+                pick_label = event["home"] if pick == "home" else event["away"]
+            elif market_key == "spreads":
+                sp = event["odds"]["spreads"][pick]
+                odds = sp["price"]
+                pick_label = f"{event['home'] if pick == 'home' else event['away']} {_fmt_line(sp['line'])}"
+            else:
+                t = event["odds"]["totals"]
+                odds = t["over_price"] if pick == "over" else t["under_price"]
+                pick_label = f"{pick.capitalize()} {t['line']}"
+
+            parsed_legs.append({
+                "game_id": game_id,
+                "market": market_key,
+                "selection": pick,
+                "odds": odds,
+                "pick_label": pick_label,
+                "matchup": f"{event['away']} @ {event['home']}",
+                "result": None,
+            })
+
+        # Deduplicate: can't have two legs on the same game
+        game_ids_used = [l["game_id"] for l in parsed_legs]
+        if len(game_ids_used) != len(set(game_ids_used)):
+            await ctx.send("Each game can only appear once in a parlay.")
+            return
+
+        bal = eco["balances"].get(uid, 0)
+        if bal < amount:
+            await ctx.send(f"Not enough coins. You have **{bal:,}**, parlay costs **{amount:,}**.")
+            return
+
+        eco["balances"][uid] = round(bal - amount, 2)
+        parlay_id = eco["next_sports_parlay_id"]
+        eco["next_sports_parlay_id"] += 1
+        decimal, combined_american = _parlay_combined_odds(parsed_legs)
+        potential = round(amount * decimal)
+
+        eco["sports_parlays"].setdefault(uid, []).append({
+            "id": parlay_id,
+            "legs": parsed_legs,
+            "amount": amount,
+            "placed_at": now.isoformat(),
+            "settled": False,
+            "won": None,
+            "payout": None,
+        })
+        save_economy(eco)
+
+        leg_lines = "\n".join(
+            f"  Leg {i+1}: **{l['pick_label']}** {_fmt_odds(l['odds'])} — {l['matchup']}"
+            for i, l in enumerate(parsed_legs)
+        )
+        await ctx.send(
+            f"🎰 **Parlay #{parlay_id}** placed — **{amount:,} coins**\n"
+            f"{leg_lines}\n"
+            f"Combined odds: **{_fmt_odds(combined_american)}** | "
+            f"Potential payout: **{potential:,} coins**"
+        )
+
+    # ── !myparlays ────────────────────────────────────────────────────────────
+
+    @commands.command(name="myparlays")
+    async def my_parlays_cmd(self, ctx, status: str = "open"):
+        eco = load_economy()
+        _init_sports(eco)
+        uid = str(ctx.author.id)
+        all_parlays = eco["sports_parlays"].get(uid, [])
+
+        show = all_parlays if status.lower() == "all" else [p for p in all_parlays if not p["settled"]]
+        if not show:
+            await ctx.send("No parlays found. Use `!parlay` to place one, or `!myparlays all` for history.")
+            return
+
+        lines = [f"🎰 **{ctx.author.display_name}'s Parlays** ({status})\n"]
+        for parlay in show[-10:]:
+            decimal, combined_american = _parlay_combined_odds(parlay["legs"])
+            potential = round(parlay["amount"] * decimal)
+            if parlay["settled"]:
+                if parlay["won"] is None:
+                    summary = f"PUSH (+{parlay['payout']:,})"
+                elif parlay["won"]:
+                    summary = f"WON +{parlay['payout']:,} 🎉"
+                else:
+                    summary = f"LOST -{parlay['amount']:,} ❌"
+            else:
+                summary = f"open — {potential:,} to win"
+
+            lines.append(
+                f"**#{parlay['id']}** {len(parlay['legs'])}-leg · "
+                f"{_fmt_odds(combined_american)} · {parlay['amount']:,} wagered · {summary}"
+            )
+            for i, leg in enumerate(parlay["legs"]):
+                icon = {"win": "✅", "loss": "❌", "push": "➡️"}.get(leg.get("result"), "⏳")
+                lines.append(
+                    f"  {icon} Leg {i+1}: **{leg['pick_label']}** {_fmt_odds(leg['odds'])} — {leg['matchup']}"
+                )
+            lines.append("")
+
+        await ctx.send("\n".join(lines)[:1990])
+
+    # ── !betleaderboard ───────────────────────────────────────────────────────
+
+    @commands.command(name="betleaderboard", aliases=["betlb"])
+    async def bet_leaderboard_cmd(self, ctx):
+        eco = load_economy()
+        _init_sports(eco)
+        ranked = _sports_leaderboard_stats(eco)
+
+        if not ranked:
+            await ctx.send("No settled bets yet — leaderboard is empty.")
+            return
+
+        lines = ["🏆 **Sports Betting Leaderboard**\n"]
+        medals = ["🥇", "🥈", "🥉"]
+        for i, (uid, s) in enumerate(ranked[:10]):
+            name = ctx.guild.get_member(int(uid))
+            display = name.display_name if name else f"<@{uid}>"
+            medal = medals[i] if i < 3 else f"**{i+1}.**"
+            net_str = f"+{s['net']:,}" if s['net'] >= 0 else f"{s['net']:,}"
+            lines.append(
+                f"{medal} **{display}** — {net_str} coins net | "
+                f"{s['wins']}W–{s['total']-s['wins']}L ({s['win_pct']}%) | "
+                f"{s['wagered']:,} wagered"
+            )
+
+        await ctx.send("\n".join(lines))
 
     # ── !livescores ───────────────────────────────────────────────────────────
 

@@ -278,6 +278,9 @@ class AdminCog(commands.Cog):
             "**`!livescores`** — Live scores for all games currently in progress, with coins at risk per game.\n"
             "**`!mybets`** — View your open bets with live scores for in-progress games.\n"
             "**`!mybets all`** — Full bet history including settled results.\n"
+            "**`!parlay <coins> <game:market:pick> ...`** — Combine 2–6 legs into one bet. All legs must win. Odds multiply together for massive payouts. Example: `!parlay 500 3:ml:home 5:total:over`\n"
+            "**`!myparlays`** — View open parlays with per-leg status. `!myparlays all` for history.\n"
+            "**`!betleaderboard`** — Top bettors ranked by net profit across all bets and parlays.\n"
             "**`!cancelsportsbet <id>`** — Cancel an open bet before the game starts (full refund).\n\n"
             "**`!commands`** — Shows this list."
         )
