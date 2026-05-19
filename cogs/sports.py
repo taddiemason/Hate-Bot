@@ -16,6 +16,9 @@ ESPN_PATHS = {
     "NBA": "basketball/nba",
     "MLB": "baseball/mlb",
     "NHL": "hockey/nhl",
+    "KBO": "baseball/kbo",
+    "NPB": "baseball/npb",
+    "UFC": "mma/ufc",
 }
 
 SPORT_KEYS = {
@@ -23,8 +26,14 @@ SPORT_KEYS = {
     "NBA": "basketball_nba",
     "MLB": "baseball_mlb",
     "NHL": "icehockey_nhl",
+    "KBO": "baseball_kbo",
+    "NPB": "baseball_npb",
+    "UFC": "mma_mixed_martial_arts",
 }
-SPORT_EMOJI = {"NFL": "🏈", "NBA": "🏀", "MLB": "⚾", "NHL": "🏒"}
+SPORT_EMOJI = {"NFL": "🏈", "NBA": "🏀", "MLB": "⚾", "NHL": "🏒", "KBO": "⚾", "NPB": "⚾", "UFC": "🥊"}
+
+# Sports where only moneyline makes sense (no spread/total)
+MONEYLINE_ONLY = {"UFC"}
 MARKET_ALIASES = {
     "ml": "h2h", "h2h": "h2h", "moneyline": "h2h",
     "spread": "spreads", "spreads": "spreads",
@@ -296,24 +305,47 @@ class SportsCog(commands.Cog):
                             continue
                         competition = (event.get("competitions") or [{}])[0]
                         competitors = competition.get("competitors", [])
-                        home_c = next((c for c in competitors if c["homeAway"] == "home"), None)
-                        away_c = next((c for c in competitors if c["homeAway"] == "away"), None)
-                        if not home_c or not away_c:
+                        if not competitors:
                             continue
-                        home_name = home_c["team"]["displayName"]
-                        away_name = away_c["team"]["displayName"]
-                        match = pending.get((home_name, away_name))
-                        if not match:
-                            continue
-                        sid, _ = match
-                        try:
-                            home_score = float(home_c.get("score", 0))
-                            away_score = float(away_c.get("score", 0))
-                        except (TypeError, ValueError):
-                            continue
-                        results = _settle_event(eco, sid, home_score, away_score)
-                        settlement_results.extend(results)
-                        pending.pop((home_name, away_name), None)
+
+                        if sport_label == "UFC":
+                            # MMA: no scores — settle by winner flag
+                            # ESPN lists both fighters; check athlete name against stored names
+                            for c in competitors:
+                                athlete = (c.get("athlete") or c.get("team") or {})
+                                name = athlete.get("displayName") or athlete.get("name", "")
+                                if not c.get("winner"):
+                                    continue
+                                # Find which pending event this winner belongs to
+                                for key, (sid, ev) in list(pending.items()):
+                                    home_name, away_name = key
+                                    if name in (home_name, away_name):
+                                        home_score = 1.0 if name == home_name else 0.0
+                                        away_score = 0.0 if name == home_name else 1.0
+                                        results = _settle_event(eco, sid, home_score, away_score)
+                                        settlement_results.extend(results)
+                                        pending.pop(key, None)
+                                        break
+                        else:
+                            # Team sports: settle by score
+                            home_c = next((c for c in competitors if c.get("homeAway") == "home"), None)
+                            away_c = next((c for c in competitors if c.get("homeAway") == "away"), None)
+                            if not home_c or not away_c:
+                                continue
+                            home_name = home_c["team"]["displayName"]
+                            away_name = away_c["team"]["displayName"]
+                            match = pending.get((home_name, away_name))
+                            if not match:
+                                continue
+                            sid, _ = match
+                            try:
+                                home_score = float(home_c.get("score", 0))
+                                away_score = float(away_c.get("score", 0))
+                            except (TypeError, ValueError):
+                                continue
+                            results = _settle_event(eco, sid, home_score, away_score)
+                            settlement_results.extend(results)
+                            pending.pop((home_name, away_name), None)
 
         save_economy(eco)
 
@@ -360,6 +392,7 @@ class SportsCog(commands.Cog):
         if sport_filter and sport_filter not in SPORT_KEYS:
             await ctx.send(f"Unknown sport. Options: {', '.join(SPORT_KEYS)}")
             return
+            return
 
         events = [
             ev for ev in eco["sports_events"].values()
@@ -383,22 +416,29 @@ class SportsCog(commands.Cog):
                 f"{emoji} **#{ev['id']}** — **{ev['away']}** @ **{ev['home']}** "
                 f"| {commence_et.strftime('%a %b %-d %-I:%M %p ET')}"
             )
+            is_mma = ev.get("sport") in MONEYLINE_ONLY
             if "h2h" in ev["odds"]:
                 h = ev["odds"]["h2h"]
-                lines.append(
-                    f"  **ML:** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
-                )
-            if "spreads" in ev["odds"]:
-                sp = ev["odds"]["spreads"]
-                lines.append(
-                    f"  **Spread:** {ev['away']} {_fmt_line(sp['away']['line'])} ({_fmt_odds(sp['away']['price'])})  ·  "
-                    f"{ev['home']} {_fmt_line(sp['home']['line'])} ({_fmt_odds(sp['home']['price'])})"
-                )
-            if "totals" in ev["odds"]:
-                t = ev["odds"]["totals"]
-                lines.append(
-                    f"  **O/U {t['line']}:** Over {_fmt_odds(t['over_price'])}  ·  Under {_fmt_odds(t['under_price'])}"
-                )
+                if is_mma:
+                    lines.append(
+                        f"  **ML (pick fighter):** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
+                    )
+                else:
+                    lines.append(
+                        f"  **ML:** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
+                    )
+            if not is_mma:
+                if "spreads" in ev["odds"]:
+                    sp = ev["odds"]["spreads"]
+                    lines.append(
+                        f"  **Spread:** {ev['away']} {_fmt_line(sp['away']['line'])} ({_fmt_odds(sp['away']['price'])})  ·  "
+                        f"{ev['home']} {_fmt_line(sp['home']['line'])} ({_fmt_odds(sp['home']['price'])})"
+                    )
+                if "totals" in ev["odds"]:
+                    t = ev["odds"]["totals"]
+                    lines.append(
+                        f"  **O/U {t['line']}:** Over {_fmt_odds(t['over_price'])}  ·  Under {_fmt_odds(t['under_price'])}"
+                    )
             lines.append("")
 
         lines.append("`!bet <#> <ml|spread|total> <home|away|over|under> <coins>` to wager")
@@ -436,6 +476,9 @@ class SportsCog(commands.Cog):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         event = eco["sports_events"].get(game_id)
+        if event and event.get("sport") in MONEYLINE_ONLY and market_key != "h2h":
+            await ctx.send(f"UFC/MMA only supports moneyline (`ml`) bets — pick `home` or `away` fighter.")
+            return
         if not event or event["settled"]:
             await ctx.send(f"Game **#{game_id}** not found. Check `!odds`.")
             return

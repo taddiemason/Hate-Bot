@@ -272,7 +272,7 @@ class AdminCog(commands.Cog):
             f"**📋 {tn} Hate Bot — Commands (5/5)**\n\n"
             "**🎰 Sports Betting**\n"
             "**`!sportsbook`** — Overview of all open events, open bets, and total coins at risk.\n"
-            "**`!odds [NFL|NBA|MLB|NHL]`** — Live betting lines for upcoming games (moneyline, spread, over/under). Filter by sport or see all.\n"
+            "**`!odds [NFL|NBA|MLB|NHL|KBO|NPB|UFC]`** — Live betting lines for upcoming games. Filter by sport or see all. UFC is moneyline only.\n"
             "**`!bet <#> <ml|spread|total> <home|away|over|under> <coins>`** — Place a bet on a game. Coins are held until the game settles.\n"
             "  _Examples: `!bet 3 ml away 500` · `!bet 3 spread home 200` · `!bet 3 total over 100`_\n"
             "**`!mybets`** — View your open bets and potential payouts.\n"
