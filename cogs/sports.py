@@ -1,5 +1,6 @@
 import datetime
 import os
+import unicodedata
 from zoneinfo import ZoneInfo
 import aiohttp
 import discord
@@ -55,6 +56,12 @@ def _init_sports(eco):
 
 def _parse_dt(iso_str):
     return datetime.datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+
+
+def _norm(name):
+    """Lowercase + strip accents for fuzzy team-name matching across APIs."""
+    nfkd = unicodedata.normalize("NFKD", name)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower().strip()
 
 
 def _fmt_odds(american):
@@ -442,12 +449,27 @@ class SportsCog(commands.Cog):
         if not sports_needing_scores:
             return
 
-        # Build lookup: (home_name, away_name) -> (sid, event) for fast matching
-        pending = {
-            (ev["home"], ev["away"]): (sid, ev)
-            for sid, ev in eco["sports_events"].items()
-            if not ev["settled"] and _parse_dt(ev["commence_time"]) <= now
-        }
+        # Build exact and normalized lookups for accent-insensitive team matching
+        pending = {}
+        pending_norm = {}  # (_norm(home), _norm(away)) -> exact (home, away) key
+        for sid, ev in eco["sports_events"].items():
+            if ev.get("settled") or _parse_dt(ev["commence_time"]) > now:
+                continue
+            key = (ev["home"], ev["away"])
+            pending[key] = (sid, ev)
+            pending_norm[(_norm(ev["home"]), _norm(ev["away"]))] = key
+        # Auto-refund games stuck unsettled for 48+ hours (ESPN data gap / cancelled)
+        for sid, ev in eco["sports_events"].items():
+            if ev.get("settled"):
+                continue
+            if now - _parse_dt(ev["commence_time"]) > datetime.timedelta(hours=48):
+                results = _settle_event(eco, sid, 0, 0)  # push — refunds all bets
+                # Override: mark as a cancelled refund rather than a 0-0 result
+                ev["status"] = "cancelled"
+                ev["home_score"] = None
+                ev["away_score"] = None
+                settlement_results.extend(results)
+                settled_sids.add(sid)
 
         settlement_results = []
         parlay_results = []
@@ -505,7 +527,8 @@ class SportsCog(commands.Cog):
                                 continue
                             home_name = home_c["team"]["displayName"]
                             away_name = away_c["team"]["displayName"]
-                            match = pending.get((home_name, away_name))
+                            match = pending.get((home_name, away_name)) or \
+                                    pending.get(pending_norm.get((_norm(home_name), _norm(away_name)), ()))
                             if not match:
                                 continue
                             sid, _ = match
@@ -590,7 +613,14 @@ class SportsCog(commands.Cog):
         for sid, ev in eco["sports_events"].items():
             if ev.get("settled") or ev.get("start_notified"):
                 continue
-            if _parse_dt(ev["commence_time"]) > now:
+            commence = _parse_dt(ev["commence_time"])
+            if commence > now:
+                continue
+            # Silently mark as notified if game started more than 15 minutes ago —
+            # avoids firing stale notifications on bot restart or first deploy of this field
+            if now - commence > datetime.timedelta(minutes=15):
+                ev["start_notified"] = True
+                changed = True
                 continue
 
             # Gather all straight bets on this game
@@ -681,11 +711,11 @@ class SportsCog(commands.Cog):
         if sport_filter and sport_filter not in SPORT_KEYS:
             await ctx.send(f"Unknown sport. Options: {', '.join(SPORT_KEYS)}")
             return
-            return
 
         events = [
             ev for ev in eco["sports_events"].values()
             if not ev["settled"]
+            and _parse_dt(ev["commence_time"]) > now  # future games only
             and (not sport_filter or ev["sport"] == sport_filter)
         ]
         events.sort(key=lambda e: e["commence_time"])
@@ -697,41 +727,50 @@ class SportsCog(commands.Cog):
             )
             return
 
-        lines = ["🎰 **Sportsbook — Upcoming Lines**\n"]
-        for ev in events[:8]:
+        footer = "`!bet <#> <ml|spread|total> <home|away|over|under> <coins>` to wager"
+        page, pages = [], []
+        for ev in events:
             commence_et = _parse_dt(ev["commence_time"]).astimezone(ZoneInfo("America/New_York"))
             emoji = SPORT_EMOJI.get(ev["sport"], "🏆")
-            lines.append(
+            block = [
                 f"{emoji} **#{ev['id']}** — **{ev['away']}** @ **{ev['home']}** "
                 f"| {commence_et.strftime('%a %b %-d %-I:%M %p ET')}"
-            )
+            ]
             is_mma = ev.get("sport") in MONEYLINE_ONLY
             if "h2h" in ev["odds"]:
                 h = ev["odds"]["h2h"]
-                if is_mma:
-                    lines.append(
-                        f"  **ML (pick fighter):** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
-                    )
-                else:
-                    lines.append(
-                        f"  **ML:** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
-                    )
+                label = "ML (pick fighter)" if is_mma else "ML"
+                block.append(
+                    f"  **{label}:** {ev['away']} {_fmt_odds(h['away'])}  ·  {ev['home']} {_fmt_odds(h['home'])}"
+                )
             if not is_mma:
                 if "spreads" in ev["odds"]:
                     sp = ev["odds"]["spreads"]
-                    lines.append(
+                    block.append(
                         f"  **Spread:** {ev['away']} {_fmt_line(sp['away']['line'])} ({_fmt_odds(sp['away']['price'])})  ·  "
                         f"{ev['home']} {_fmt_line(sp['home']['line'])} ({_fmt_odds(sp['home']['price'])})"
                     )
                 if "totals" in ev["odds"]:
                     t = ev["odds"]["totals"]
-                    lines.append(
+                    block.append(
                         f"  **O/U {t['line']}:** Over {_fmt_odds(t['over_price'])}  ·  Under {_fmt_odds(t['under_price'])}"
                     )
-            lines.append("")
+            block.append("")
+            block_text = "\n".join(block)
+            # Start a new page if this block would overflow
+            current = "\n".join(page)
+            if page and len(current) + len(block_text) + len(footer) > 1800:
+                pages.append(current + f"\n{footer}")
+                page = []
+            page.append(block_text)
 
-        lines.append("`!bet <#> <ml|spread|total> <home|away|over|under> <coins>` to wager")
-        await ctx.send("\n".join(lines)[:1990])
+        if page:
+            pages.append("\n".join(page) + f"\n{footer}")
+
+        header = "🎰 **Sportsbook — Upcoming Lines**\n\n"
+        for i, p in enumerate(pages):
+            prefix = header if i == 0 else f"🎰 **Upcoming Lines (cont.)**\n\n"
+            await ctx.send(prefix + p)
 
     # ── !bet ──────────────────────────────────────────────────────────────────
 
@@ -887,6 +926,8 @@ class SportsCog(commands.Cog):
                         result = f"🔴 LIVE {score_str} _{time_str}_ | {_calc_payout(bet['amount'], bet['odds']):,} to win"
                     else:
                         result = f"🔴 LIVE {period} | {_calc_payout(bet['amount'], bet['odds']):,} to win"
+                elif ev and _parse_dt(ev["commence_time"]) <= now:
+                    result = f"⏳ Awaiting result — {_calc_payout(bet['amount'], bet['odds']):,} to win"
                 else:
                     result = f"open — {_calc_payout(bet['amount'], bet['odds']):,} to win"
 
