@@ -281,7 +281,8 @@ class AdminCog(commands.Cog):
             "**`!parlay <coins> <game:market:pick> ...`** — Combine 2–6 legs into one bet. All legs must win. Odds multiply together for massive payouts. Example: `!parlay 500 3:ml:home 5:total:over`\n"
             "**`!myparlays`** — View open parlays with per-leg status. `!myparlays all` for history.\n"
             "**`!betleaderboard`** — Top bettors ranked by net profit across all bets and parlays.\n"
-            "**`!cancelsportsbet <id>`** — Cancel an open bet before the game starts (full refund).\n\n"
+            "**`!cancelsportsbet <id>`** — Cancel an open bet before the game starts (full refund).\n"
+            "**`!settlebet <game_id> <home_score> <away_score>`** — (Admin) Manually settle a game. Use `push` as score to refund all bets.\n\n"
             "**`!commands`** — Shows this list."
         )
 

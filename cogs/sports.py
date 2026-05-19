@@ -458,11 +458,18 @@ class SportsCog(commands.Cog):
             key = (ev["home"], ev["away"])
             pending[key] = (sid, ev)
             pending_norm[(_norm(ev["home"]), _norm(ev["away"]))] = key
-        # Auto-refund games stuck unsettled for 48+ hours (ESPN data gap / cancelled)
+        settlement_results = []
+        parlay_results = []
+        settled_sids = set()
+
+        # Sports with no ESPN coverage: settle via Odds API scores; auto-refund after 36h
+        NO_ESPN_SPORTS = {"KBO", "NPB"}
+        # Auto-refund games stuck unsettled (ESPN data gap / cancelled)
         for sid, ev in eco["sports_events"].items():
             if ev.get("settled"):
                 continue
-            if now - _parse_dt(ev["commence_time"]) > datetime.timedelta(hours=48):
+            cutoff = datetime.timedelta(hours=36 if ev.get("sport") in NO_ESPN_SPORTS else 48)
+            if now - _parse_dt(ev["commence_time"]) > cutoff:
                 results = _settle_event(eco, sid, 0, 0)  # push — refunds all bets
                 # Override: mark as a cancelled refund rather than a 0-0 result
                 ev["status"] = "cancelled"
@@ -471,14 +478,58 @@ class SportsCog(commands.Cog):
                 settlement_results.extend(results)
                 settled_sids.add(sid)
 
-        settlement_results = []
-        parlay_results = []
-        settled_sids = set()
         today = now.strftime("%Y%m%d")
         yesterday = (now - datetime.timedelta(days=1)).strftime("%Y%m%d")
 
         async with aiohttp.ClientSession() as session:
-            for sport_label in sports_needing_scores:
+            # --- Odds API scores: settle KBO/NPB (ESPN has no endpoint for these) ---
+            odds_sports_pending = NO_ESPN_SPORTS & sports_needing_scores
+            meta = eco.setdefault("sports_meta", {})
+            last_scores_check = meta.get("last_odds_scores_check")
+            scores_due = (
+                odds_sports_pending
+                and ODDS_API_KEY
+                and (
+                    last_scores_check is None
+                    or now - _parse_dt(last_scores_check) > datetime.timedelta(hours=2)
+                )
+            )
+            if scores_due:
+                meta["last_odds_scores_check"] = now.isoformat()
+                # Build api_id -> short_id map for direct matching
+                api_id_map = {ev["api_id"]: sid for sid, ev in eco["sports_events"].items() if ev.get("api_id")}
+                for sport_label in odds_sports_pending:
+                    sport_key = SPORT_KEYS[sport_label]
+                    try:
+                        async with session.get(
+                            f"{ODDS_API_BASE}/sports/{sport_key}/scores/",
+                            params={"apiKey": ODDS_API_KEY, "daysFrom": 2},
+                        ) as resp:
+                            if resp.status != 200:
+                                continue
+                            score_data = await resp.json()
+                    except Exception:
+                        continue
+                    for game in score_data:
+                        if not game.get("completed"):
+                            continue
+                        api_id = game.get("id")
+                        short_id = api_id_map.get(api_id)
+                        if not short_id or eco["sports_events"].get(short_id, {}).get("settled"):
+                            continue
+                        scores = {s["name"]: s["score"] for s in (game.get("scores") or [])}
+                        ev = eco["sports_events"][short_id]
+                        try:
+                            hs = float(scores.get(ev["home"], 0))
+                            as_ = float(scores.get(ev["away"], 0))
+                        except (TypeError, ValueError):
+                            continue
+                        results = _settle_event(eco, short_id, hs, as_)
+                        settlement_results.extend(results)
+                        settled_sids.add(short_id)
+
+            # --- ESPN: settle NFL/NBA/MLB/NHL/UFC ---
+            for sport_label in sports_needing_scores - NO_ESPN_SPORTS:
                 path = ESPN_PATHS[sport_label]
                 for date_str in (today, yesterday):
                     try:
@@ -1254,6 +1305,46 @@ class SportsCog(commands.Cog):
             "`!mybets` · `!mybets all`"
         )
         await ctx.send("\n".join(lines)[:1990])
+
+
+    @commands.command(name="settlebet")
+    @commands.has_permissions(administrator=True)
+    async def settle_bet_cmd(self, ctx, game_id: str = None, home_score: str = None, away_score: str = None):
+        """Admin: manually settle a game. Usage: !settlebet <game_id> <home_score> <away_score>
+        Use 'push' as home_score to refund all bets."""
+        if not game_id:
+            await ctx.send("Usage: `!settlebet <game_id> <home_score|push> <away_score>`")
+            return
+        eco = load_economy()
+        _init_sports(eco)
+        ev = eco["sports_events"].get(game_id)
+        if not ev:
+            await ctx.send(f"❌ No event found with ID `{game_id}`.")
+            return
+        if ev.get("settled"):
+            await ctx.send(f"❌ Game `{game_id}` is already settled.")
+            return
+        if home_score is None or home_score.lower() == "push":
+            hs, as_ = 0.0, 0.0
+            ev["status"] = "cancelled"
+            ev["home_score"] = None
+            ev["away_score"] = None
+        else:
+            try:
+                hs = float(home_score)
+                as_ = float(away_score)
+            except (TypeError, ValueError):
+                await ctx.send("❌ Scores must be numbers. Use `push` to refund.")
+                return
+        results = _settle_event(eco, game_id, hs, as_)
+        parlay_results = _settle_parlays(eco, game_id)
+        save_economy(eco)
+        matchup = f"{ev.get('away', '?')} @ {ev.get('home', '?')}"
+        score_disp = f"{int(as_)}–{int(hs)}" if ev.get("home_score") is not None else "PUSH/REFUND"
+        await ctx.send(
+            f"✅ Settled **{matchup}** ({score_disp})\n"
+            f"{len(results)} straight bet(s) settled · {len(parlay_results)} parlay leg(s) resolved."
+        )
 
 
 async def setup(bot):
