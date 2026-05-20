@@ -1253,49 +1253,62 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 bet_info += f", {open_parlays} parlay{'s' if open_parlays != 1 else ''}"
 
             is_ufc = ev.get("sport") == "UFC"
+            sport_key = html.escape(ev.get("sport", ""))
+            safe_matchup = matchup.replace("'", "\\'")
             if is_ufc:
                 score_fields = (
-                    f"<span class='muted' style='font-size:.85em'>Winner:</span> "
-                    f"<select name='winner' style='font-size:.85em'>"
+                    f"<select name='winner' style='max-width:180px;font-size:.85em'>"
                     f"<option value='home'>{home_lbl}</option>"
                     f"<option value='away'>{away_lbl}</option>"
                     f"</select>"
                 )
             else:
                 score_fields = (
-                    f"<span class='muted' style='font-size:.85em'>{away_lbl}:</span> "
-                    f"<input type='number' name='away_score' min='0' step='1' style='width:60px;font-size:.85em'> "
-                    f"<span class='muted' style='font-size:.85em'>{home_lbl}:</span> "
-                    f"<input type='number' name='home_score' min='0' step='1' style='width:60px;font-size:.85em'> "
+                    f"<div style='display:flex;align-items:center;gap:4px'>"
+                    f"<span class='muted' style='font-size:.78em'>Away</span>"
+                    f"<input type='number' name='away_score' min='0' step='1' "
+                    f"style='width:52px;text-align:center;padding:4px 6px'>"
+                    f"<span class='muted' style='font-size:.9em'>–</span>"
+                    f"<input type='number' name='home_score' min='0' step='1' "
+                    f"style='width:52px;text-align:center;padding:4px 6px'>"
+                    f"<span class='muted' style='font-size:.78em'>Home</span>"
+                    f"</div>"
                 )
 
-            settle_rows += f"""<tr>
-  <td>{sport_emoji} <b>#{sid}</b></td>
-  <td>{matchup}<br><span class="muted" style="font-size:.8em">{ct_str}</span></td>
-  <td><span class="yellow">{bet_info}</span></td>
-  <td>
-    <form method="post" action="/api/settlegame" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <input type="hidden" name="game_id" value="{sid}">
-      <input type="hidden" name="sport" value="{html.escape(ev.get('sport',''))}">
-      {score_fields}
-      <input type="submit" name="action" value="Settle" class="btn" style="font-size:.85em"
-             onclick="return confirm('Settle #{sid} {matchup}?')">
-      <input type="submit" name="action" value="Refund" class="btn secondary" style="font-size:.85em"
-             onclick="return confirm('Refund all bets on #{sid} {matchup}?')">
-    </form>
-  </td>
-</tr>"""
+            bet_cls = "yellow" if open_bets or open_parlays else "muted"
+            settle_rows += (
+                f"<tr>"
+                f"<td style='white-space:nowrap'>{sport_emoji} <b>#{sid}</b><br>"
+                f"<span class='muted' style='font-size:.75em'>{ct_str}</span></td>"
+                f"<td>{matchup}</td>"
+                f"<td style='white-space:nowrap'><span class='{bet_cls}'>{bet_info}</span></td>"
+                f"<td>"
+                f"<form method='post' action='/api/settlegame' "
+                f"style='display:flex;gap:8px;align-items:center;flex-wrap:nowrap'>"
+                f"<input type='hidden' name='game_id' value='{sid}'>"
+                f"<input type='hidden' name='sport' value='{sport_key}'>"
+                f"{score_fields}"
+                f"<button type='submit' name='action' value='Settle' class='btn' style='white-space:nowrap' "
+                f"onclick=\"return confirm('Settle #{sid}?')\">Settle</button>"
+                f"<button type='submit' name='action' value='Refund' class='btn danger' style='white-space:nowrap;font-size:.82em' "
+                f"onclick=\"return confirm('Refund all bets on #{sid}?')\">Refund</button>"
+                f"</form>"
+                f"</td>"
+                f"</tr>"
+            )
 
         if not settle_rows:
-            settle_rows = "<tr><td colspan=4 class='muted' style='text-align:center'>No games awaiting settlement.</td></tr>"
+            settle_rows = "<tr><td colspan=4 class='muted' style='text-align:center;padding:16px'>No games awaiting settlement.</td></tr>"
 
         body = f"""{msg}
 <h2>Pending Settlement</h2>
-<p class="muted">Games past their start time that haven't been settled yet. Settle enters the final score; Refund returns all wagers.</p>
-<table>
-  <thead><tr><th>ID</th><th>Matchup</th><th>Open Bets</th><th>Action</th></tr></thead>
+<p class="muted">Games past their start time that haven't been settled yet. Enter the final score and click <b>Settle</b>, or <b>Refund</b> to return all wagers.</p>
+<div style="overflow-x:auto">
+<table style="min-width:700px">
+  <thead><tr><th style="width:130px">Game</th><th>Matchup</th><th style="width:100px">Bets</th><th>Score &amp; Action</th></tr></thead>
   <tbody>{settle_rows}</tbody>
 </table>
+</div>
 
 <div class="panel" style="margin-top:20px">
   <h2 style="margin-top:0">Sport Toggles</h2>
