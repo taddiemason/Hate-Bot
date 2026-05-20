@@ -1240,12 +1240,13 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             except ValueError:
                 ct_str = ct.strftime("%a %b %d %I:%M %p UTC")
             open_bets = sum(
-                1 for b in eco.get("sports_bets", [])
-                if b.get("game_id") == sid and not b.get("settled")
+                1 for b in sports_bets
+                if isinstance(b, dict) and b.get("game_id") == sid and not b.get("settled")
             )
             open_parlays = sum(
-                1 for p in eco.get("sports_parlays", [])
-                if not p.get("settled") and any(lg.get("game_id") == sid for lg in p.get("legs", []))
+                1 for p in sports_parlays
+                if isinstance(p, dict) and not p.get("settled")
+                and any(lg.get("game_id") == sid for lg in (p.get("legs") or []))
             )
             bet_info = f"{open_bets} bet{'s' if open_bets != 1 else ''}"
             if open_parlays:
