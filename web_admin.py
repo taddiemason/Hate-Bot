@@ -1197,14 +1197,14 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         for b in sports_bets:
             if not isinstance(b, dict) or b.get("settled"):
                 continue
-            ev = sports_events.get(b.get("game_id", ""), {})
+            ev = sports_events.get(str(b.get("game_id", "")), {})
             sport = ev.get("sport", "?")
             bet_counts[sport] = bet_counts.get(sport, 0) + 1
         for p in sports_parlays:
             if not isinstance(p, dict) or p.get("settled"):
                 continue
             for leg in (p.get("legs") or []):
-                ev = sports_events.get(leg.get("game_id", ""), {})
+                ev = sports_events.get(str(leg.get("game_id", "")), {})
                 sport = ev.get("sport", "?")
                 parlay_counts[sport] = parlay_counts.get(sport, 0) + 1
 
@@ -1241,12 +1241,12 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 ct_str = ct.strftime("%a %b %d %I:%M %p UTC")
             open_bets = sum(
                 1 for b in sports_bets
-                if isinstance(b, dict) and b.get("game_id") == sid and not b.get("settled")
+                if isinstance(b, dict) and str(b.get("game_id", "")) == str(sid) and not b.get("settled")
             )
             open_parlays = sum(
                 1 for p in sports_parlays
                 if isinstance(p, dict) and not p.get("settled")
-                and any(lg.get("game_id") == sid for lg in (p.get("legs") or []))
+                and any(str(lg.get("game_id", "")) == str(sid) for lg in (p.get("legs") or []))
             )
             bet_info = f"{open_bets} bet{'s' if open_bets != 1 else ''}"
             if open_parlays:
