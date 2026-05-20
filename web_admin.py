@@ -1163,20 +1163,41 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
                 f"</tr>"
             )
 
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        def _parse_dt_safe(s):
+            """Parse ISO datetime string; always returns a UTC-aware datetime."""
+            if not s:
+                return now
+            try:
+                s = s.replace("Z", "+00:00")
+                dt = datetime.datetime.fromisoformat(s)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=datetime.timezone.utc)
+                return dt
+            except (ValueError, AttributeError):
+                return now
+
+        sports_events = eco.get("sports_events") or {}
+        sports_bets = eco.get("sports_bets") or []
+        sports_parlays = eco.get("sports_parlays") or []
+
         # Live open bet counts per sport
         bet_counts = {}
         parlay_counts = {}
-        for b in eco.get("sports_bets", []):
-            if not b.get("settled"):
-                ev = eco.get("sports_events", {}).get(b["game_id"], {})
+        for b in sports_bets:
+            if not isinstance(b, dict) or b.get("settled"):
+                continue
+            ev = sports_events.get(b.get("game_id", ""), {})
+            sport = ev.get("sport", "?")
+            bet_counts[sport] = bet_counts.get(sport, 0) + 1
+        for p in sports_parlays:
+            if not isinstance(p, dict) or p.get("settled"):
+                continue
+            for leg in (p.get("legs") or []):
+                ev = sports_events.get(leg.get("game_id", ""), {})
                 sport = ev.get("sport", "?")
-                bet_counts[sport] = bet_counts.get(sport, 0) + 1
-        for p in eco.get("sports_parlays", []):
-            if not p.get("settled"):
-                for leg in p.get("legs", []):
-                    ev = eco.get("sports_events", {}).get(leg.get("game_id", ""), {})
-                    sport = ev.get("sport", "?")
-                    parlay_counts[sport] = parlay_counts.get(sport, 0) + 1
+                parlay_counts[sport] = parlay_counts.get(sport, 0) + 1
 
         stats_rows = "".join(
             f"<tr><td>{_ALL_SPORTS.get(s, s)}</td>"
@@ -1186,21 +1207,15 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
         )
 
         # Pending settlement: unsettled events past their start time
-        now = datetime.datetime.now(datetime.timezone.utc)
-
-        def _parse_dt_local(s):
-            if not s:
-                return now
-            s = s.replace("Z", "+00:00")
+        pending_events = []
+        for sid, ev in sports_events.items():
+            if not isinstance(ev, dict) or ev.get("settled"):
+                continue
             try:
-                return datetime.datetime.fromisoformat(s)
-            except ValueError:
-                return now
-
-        pending_events = [
-            (sid, ev) for sid, ev in eco.get("sports_events", {}).items()
-            if not ev.get("settled") and _parse_dt_local(ev.get("commence_time", "")) <= now
-        ]
+                if _parse_dt_safe(ev.get("commence_time", "")) <= now:
+                    pending_events.append((sid, ev))
+            except Exception:
+                pass
         pending_events.sort(key=lambda x: x[1].get("commence_time", ""))
 
         settle_rows = ""
@@ -1210,8 +1225,11 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             matchup = html.escape(f"{ev.get('away', '?')} @ {ev.get('home', '?')}")
             home_lbl = html.escape(ev.get("home", "Home"))
             away_lbl = html.escape(ev.get("away", "Away"))
-            ct = _parse_dt_local(ev.get("commence_time", ""))
-            ct_str = ct.strftime("%a %b %-d %-I:%M %p UTC")
+            ct = _parse_dt_safe(ev.get("commence_time", ""))
+            try:
+                ct_str = ct.strftime("%a %b %-d %-I:%M %p UTC")
+            except ValueError:
+                ct_str = ct.strftime("%a %b %d %I:%M %p UTC")
             open_bets = sum(
                 1 for b in eco.get("sports_bets", [])
                 if b.get("game_id") == sid and not b.get("settled")
