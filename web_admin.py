@@ -1138,6 +1138,15 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     async def handle_sports(request):
         if not _check_auth(request):
             return aiohttp.web.HTTPFound("/login")
+        try:
+            return await _handle_sports_inner(request)
+        except Exception as exc:
+            import traceback as _tb
+            tb_str = html.escape(_tb.format_exc())
+            log_event("ERROR", f"[Admin] /sports page error: {exc!r}")
+            return _page("Sports — Error", f'<div class="msg err"><b>{html.escape(str(exc))}</b><br><pre style="font-size:.8em;white-space:pre-wrap">{tb_str}</pre></div>')
+
+    async def _handle_sports_inner(request):
         eco = load_eco()
         msg = ""
         if request.rel_url.query.get("ok"):
