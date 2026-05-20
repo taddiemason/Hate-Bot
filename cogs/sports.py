@@ -7,8 +7,27 @@ import discord
 from discord.ext import commands, tasks
 from shared import load_economy, save_economy, _get_guild_channels
 
-ODDS_API_KEY = os.getenv("ODDS_API_KEY", "")
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
+_ODDS_KEYS = [k for k in (os.getenv("ODDS_API_KEY", ""), os.getenv("ODDS_API_KEY_2", "")) if k]
+ODDS_API_KEY = _ODDS_KEYS[0] if _ODDS_KEYS else ""
+
+
+async def _odds_get(session: "aiohttp.ClientSession", url: str, params: dict) -> tuple[int, dict | list | None]:
+    """Try each API key in order; return (status, json) from the first that doesn't 401/429."""
+    for key in _ODDS_KEYS:
+        p = {**params, "apiKey": key}
+        try:
+            async with session.get(url, params=p) as resp:
+                if resp.status in (401, 429) and key != _ODDS_KEYS[-1]:
+                    continue
+                try:
+                    data = await resp.json()
+                except Exception:
+                    data = None
+                return resp.status, data
+        except Exception:
+            continue
+    return 0, None
 
 # ESPN unofficial scoreboard — no key, no rate limits
 ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports"
@@ -405,19 +424,14 @@ class SportsCog(commands.Cog):
         async with aiohttp.ClientSession() as session:
             for sport_label, sport_key in SPORT_KEYS.items():
                 try:
-                    async with session.get(
-                        f"{ODDS_API_BASE}/sports/{sport_key}/odds",
-                        params={
-                            "apiKey": ODDS_API_KEY,
-                            "regions": "us",
-                            "markets": "h2h,spreads,totals",
-                            "oddsFormat": "american",
-                            "dateFormat": "iso",
-                        },
-                    ) as resp:
-                        if resp.status != 200:
-                            continue
-                        games = await resp.json()
+                    status, games = await _odds_get(session, f"{ODDS_API_BASE}/sports/{sport_key}/odds", {
+                        "regions": "us",
+                        "markets": "h2h,spreads,totals",
+                        "oddsFormat": "american",
+                        "dateFormat": "iso",
+                    })
+                    if status != 200 or not games:
+                        continue
                 except Exception:
                     continue
 
@@ -501,13 +515,11 @@ class SportsCog(commands.Cog):
                 for sport_label in odds_sports_pending:
                     sport_key = SPORT_KEYS[sport_label]
                     try:
-                        async with session.get(
-                            f"{ODDS_API_BASE}/sports/{sport_key}/scores/",
-                            params={"apiKey": ODDS_API_KEY, "daysFrom": 2},
-                        ) as resp:
-                            if resp.status != 200:
-                                continue
-                            score_data = await resp.json()
+                        status, score_data = await _odds_get(
+                            session, f"{ODDS_API_BASE}/sports/{sport_key}/scores/", {"daysFrom": 2}
+                        )
+                        if status != 200 or not score_data:
+                            continue
                     except Exception:
                         continue
                     for game in score_data:
@@ -763,10 +775,11 @@ class SportsCog(commands.Cog):
             await ctx.send(f"Unknown sport. Options: {', '.join(SPORT_KEYS)}")
             return
 
+        cutoff = now + datetime.timedelta(days=14)
         events = [
             ev for ev in eco["sports_events"].values()
             if not ev["settled"]
-            and _parse_dt(ev["commence_time"]) > now  # future games only
+            and now < _parse_dt(ev["commence_time"]) <= cutoff
             and (not sport_filter or ev["sport"] == sport_filter)
         ]
         events.sort(key=lambda e: e["commence_time"])
