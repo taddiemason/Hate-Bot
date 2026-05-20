@@ -74,6 +74,7 @@ def _page(title: str, body: str, nav: bool = True) -> aiohttp.web.Response:
   <a href="/shop">Shop</a>
   <a href="/stocks">Stocks</a>
   <a href="/messages">Messages</a>
+  <a href="/sports">Sports</a>
   <a href="/logs">Logs</a>
   <a href="/logout">Logout</a>
 </nav>"""
@@ -1122,6 +1123,236 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
             headers={"Content-Disposition": "attachment; filename=bot.log"},
         )
 
+    # ── Sports ───────────────────────────────────────────────────────────────
+
+    _ALL_SPORTS = {
+        "NFL": "🏈 NFL",
+        "NBA": "🏀 NBA",
+        "MLB": "⚾ MLB",
+        "NHL": "🏒 NHL",
+        "KBO": "⚾ KBO (Korean Baseball)",
+        "NPB": "⚾ NPB (Japanese Baseball)",
+        "UFC": "🥊 UFC/MMA",
+    }
+
+    async def handle_sports(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        eco = load_eco()
+        msg = ""
+        if request.rel_url.query.get("ok"):
+            msg = f'<div class="msg ok">{html.escape(request.rel_url.query["ok"])}</div>'
+        if request.rel_url.query.get("err"):
+            msg = f'<div class="msg err">{html.escape(request.rel_url.query["err"])}</div>'
+
+        disabled = set(eco.get("sports_config", {}).get("disabled_sports", []))
+
+        rows = ""
+        for key, label in _ALL_SPORTS.items():
+            checked = "" if key in disabled else "checked"
+            status_cls = "green" if key not in disabled else "red"
+            status_txt = "Enabled" if key not in disabled else "Disabled"
+            rows += (
+                f"<tr>"
+                f"<td>{label}</td>"
+                f"<td><span class='{status_cls}'>{status_txt}</span></td>"
+                f"<td><label style='display:flex;align-items:center;gap:8px;cursor:pointer'>"
+                f"<input type='checkbox' name='sport_{key}' value='1' {checked} "
+                f"style='width:16px;height:16px;cursor:pointer'>"
+                f"<span class='muted' style='font-size:.85em'>Allow betting</span></label></td>"
+                f"</tr>"
+            )
+
+        # Live open bet counts per sport
+        bet_counts = {}
+        parlay_counts = {}
+        for b in eco.get("sports_bets", []):
+            if not b.get("settled"):
+                ev = eco.get("sports_events", {}).get(b["game_id"], {})
+                sport = ev.get("sport", "?")
+                bet_counts[sport] = bet_counts.get(sport, 0) + 1
+        for p in eco.get("sports_parlays", []):
+            if not p.get("settled"):
+                for leg in p.get("legs", []):
+                    ev = eco.get("sports_events", {}).get(leg.get("game_id", ""), {})
+                    sport = ev.get("sport", "?")
+                    parlay_counts[sport] = parlay_counts.get(sport, 0) + 1
+
+        stats_rows = "".join(
+            f"<tr><td>{_ALL_SPORTS.get(s, s)}</td>"
+            f"<td>{bet_counts.get(s, 0)}</td>"
+            f"<td>{parlay_counts.get(s, 0)}</td></tr>"
+            for s in _ALL_SPORTS
+        )
+
+        # Pending settlement: unsettled events past their start time
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        def _parse_dt_local(s):
+            if not s:
+                return now
+            s = s.replace("Z", "+00:00")
+            try:
+                return datetime.datetime.fromisoformat(s)
+            except ValueError:
+                return now
+
+        pending_events = [
+            (sid, ev) for sid, ev in eco.get("sports_events", {}).items()
+            if not ev.get("settled") and _parse_dt_local(ev.get("commence_time", "")) <= now
+        ]
+        pending_events.sort(key=lambda x: x[1].get("commence_time", ""))
+
+        settle_rows = ""
+        for sid, ev in pending_events:
+            sport_emoji = {"NFL": "🏈", "NBA": "🏀", "MLB": "⚾", "NHL": "🏒",
+                           "KBO": "⚾", "NPB": "⚾", "UFC": "🥊"}.get(ev.get("sport", ""), "🏆")
+            matchup = html.escape(f"{ev.get('away', '?')} @ {ev.get('home', '?')}")
+            home_lbl = html.escape(ev.get("home", "Home"))
+            away_lbl = html.escape(ev.get("away", "Away"))
+            ct = _parse_dt_local(ev.get("commence_time", ""))
+            ct_str = ct.strftime("%a %b %-d %-I:%M %p UTC")
+            open_bets = sum(
+                1 for b in eco.get("sports_bets", [])
+                if b.get("game_id") == sid and not b.get("settled")
+            )
+            open_parlays = sum(
+                1 for p in eco.get("sports_parlays", [])
+                if not p.get("settled") and any(lg.get("game_id") == sid for lg in p.get("legs", []))
+            )
+            bet_info = f"{open_bets} bet{'s' if open_bets != 1 else ''}"
+            if open_parlays:
+                bet_info += f", {open_parlays} parlay{'s' if open_parlays != 1 else ''}"
+
+            is_ufc = ev.get("sport") == "UFC"
+            if is_ufc:
+                score_fields = (
+                    f"<span class='muted' style='font-size:.85em'>Winner:</span> "
+                    f"<select name='winner' style='font-size:.85em'>"
+                    f"<option value='home'>{home_lbl}</option>"
+                    f"<option value='away'>{away_lbl}</option>"
+                    f"</select>"
+                )
+            else:
+                score_fields = (
+                    f"<span class='muted' style='font-size:.85em'>{away_lbl}:</span> "
+                    f"<input type='number' name='away_score' min='0' step='1' style='width:60px;font-size:.85em'> "
+                    f"<span class='muted' style='font-size:.85em'>{home_lbl}:</span> "
+                    f"<input type='number' name='home_score' min='0' step='1' style='width:60px;font-size:.85em'> "
+                )
+
+            settle_rows += f"""<tr>
+  <td>{sport_emoji} <b>#{sid}</b></td>
+  <td>{matchup}<br><span class="muted" style="font-size:.8em">{ct_str}</span></td>
+  <td><span class="yellow">{bet_info}</span></td>
+  <td>
+    <form method="post" action="/api/settlegame" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="game_id" value="{sid}">
+      <input type="hidden" name="sport" value="{html.escape(ev.get('sport',''))}">
+      {score_fields}
+      <input type="submit" name="action" value="Settle" class="btn" style="font-size:.85em"
+             onclick="return confirm('Settle #{sid} {matchup}?')">
+      <input type="submit" name="action" value="Refund" class="btn secondary" style="font-size:.85em"
+             onclick="return confirm('Refund all bets on #{sid} {matchup}?')">
+    </form>
+  </td>
+</tr>"""
+
+        if not settle_rows:
+            settle_rows = "<tr><td colspan=4 class='muted' style='text-align:center'>No games awaiting settlement.</td></tr>"
+
+        body = f"""{msg}
+<h2>Pending Settlement</h2>
+<p class="muted">Games past their start time that haven't been settled yet. Settle enters the final score; Refund returns all wagers.</p>
+<table>
+  <thead><tr><th>ID</th><th>Matchup</th><th>Open Bets</th><th>Action</th></tr></thead>
+  <tbody>{settle_rows}</tbody>
+</table>
+
+<div class="panel" style="margin-top:20px">
+  <h2 style="margin-top:0">Sport Toggles</h2>
+  <p class="muted">Disabled sports won't appear in <code>!odds</code> and new bets will be rejected. Existing open bets still settle normally.</p>
+  <form method="post" action="/api/sportsconfig">
+    <table>
+      <thead><tr><th>Sport</th><th>Status</th><th>Toggle</th></tr></thead>
+      <tbody>{rows}</tbody>
+    </table>
+    <div style="margin-top:14px"><input type="submit" class="btn" value="Save Changes"></div>
+  </form>
+</div>
+
+<h2>Open Bets by Sport</h2>
+<table>
+  <thead><tr><th>Sport</th><th>Open Straight Bets</th><th>Open Parlay Legs</th></tr></thead>
+  <tbody>{stats_rows}</tbody>
+</table>"""
+        return _page("Sports Betting", body)
+
+    async def handle_sportsconfig_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        data = await request.post()
+        enabled = {key for key in _ALL_SPORTS if data.get(f"sport_{key}") == "1"}
+        disabled = [key for key in _ALL_SPORTS if key not in enabled]
+        eco = load_eco()
+        eco.setdefault("sports_config", {})["disabled_sports"] = disabled
+        save_eco(eco)
+        log_event("WARN", f"[Admin] Sports config updated — disabled: {disabled or 'none'}")
+        msg = "All sports enabled." if not disabled else f"Disabled: {', '.join(disabled)}"
+        return aiohttp.web.HTTPFound(f"/sports?ok={msg.replace(' ', '+')}")
+
+    async def handle_settlegame_api(request):
+        if not _check_auth(request):
+            return aiohttp.web.HTTPFound("/login")
+        from cogs.sports import _settle_event, _settle_parlays, _init_sports
+        data = await request.post()
+        game_id = data.get("game_id", "").strip()
+        action = data.get("action", "Settle")
+        sport = data.get("sport", "")
+        if not game_id:
+            return aiohttp.web.HTTPFound("/sports?err=Missing+game+ID")
+
+        eco = load_eco()
+        _init_sports(eco)
+        ev = eco["sports_events"].get(game_id)
+        if not ev:
+            return aiohttp.web.HTTPFound(f"/sports?err=Game+%23{game_id}+not+found")
+        if ev.get("settled"):
+            return aiohttp.web.HTTPFound(f"/sports?err=Game+%23{game_id}+is+already+settled")
+
+        matchup = f"{ev.get('away','?')} @ {ev.get('home','?')}"
+
+        if action == "Refund":
+            _settle_event(eco, game_id, 0, 0)
+            ev["status"] = "cancelled"
+            ev["home_score"] = None
+            ev["away_score"] = None
+            _settle_parlays(eco, game_id)
+            save_eco(eco)
+            log_event("WARN", f"[Admin] Refunded game #{game_id}: {matchup}")
+            return aiohttp.web.HTTPFound(f"/sports?ok=Refunded+all+bets+on+%23{game_id}+{matchup.replace(' ', '+')}")
+
+        # Settle with scores
+        if sport == "UFC":
+            winner = data.get("winner", "home")
+            hs = 1.0 if winner == "home" else 0.0
+            as_ = 0.0 if winner == "home" else 1.0
+        else:
+            try:
+                hs = float(data.get("home_score", "").strip())
+                as_ = float(data.get("away_score", "").strip())
+            except (ValueError, AttributeError):
+                return aiohttp.web.HTTPFound(f"/sports?err=Invalid+scores+for+%23{game_id}")
+
+        _settle_event(eco, game_id, hs, as_)
+        _settle_parlays(eco, game_id)
+        save_eco(eco)
+        score_str = f"{int(as_)}–{int(hs)}" if sport != "UFC" else f"{'home' if hs > as_ else 'away'} wins"
+        log_event("WARN", f"[Admin] Settled game #{game_id}: {matchup} ({score_str})")
+        return aiohttp.web.HTTPFound(
+            f"/sports?ok=Settled+%23{game_id}+{matchup.replace(' ', '+')}+%28{score_str.replace(' ', '+')}%29"
+        )
+
     # ── Wire up routes ────────────────────────────────────────────────────────
 
     @aiohttp.web.middleware
@@ -1154,6 +1385,9 @@ def create_web_app(load_eco, save_eco, get_shop, shop_items, market_stocks, bot,
     app.router.add_get("/user/{uid}", handle_user)
     app.router.add_get("/messages", handle_messages)
     app.router.add_post("/api/sendmessage", handle_sendmessage_api)
+    app.router.add_get("/sports", handle_sports)
+    app.router.add_post("/api/sportsconfig", handle_sportsconfig_api)
+    app.router.add_post("/api/settlegame", handle_settlegame_api)
     app.router.add_get("/logs", handle_logs)
     app.router.add_post("/api/clearlogs", handle_clearlogs_api)
     app.router.add_get("/logs/clearbuffer", handle_clearbuffer_api)

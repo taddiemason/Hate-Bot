@@ -295,6 +295,12 @@ def _parse_event(game, sport_label, eco):
     return short_id, event
 
 
+def _enabled_sports(eco) -> set:
+    """Return the set of sport labels currently enabled for betting."""
+    disabled = set(eco.get("sports_config", {}).get("disabled_sports", []))
+    return set(SPORT_KEYS.keys()) - disabled
+
+
 def _update_odds(event, game):
     """Parse bookmaker odds from API response into the event dict."""
     bookmakers = game.get("bookmakers", [])
@@ -421,8 +427,11 @@ class SportsCog(commands.Cog):
         now = datetime.datetime.now(datetime.timezone.utc)
         cutoff = now - datetime.timedelta(hours=6)
 
+        enabled = _enabled_sports(eco)
         async with aiohttp.ClientSession() as session:
             for sport_label, sport_key in SPORT_KEYS.items():
+                if sport_label not in enabled:
+                    continue
                 try:
                     status, games = await _odds_get(session, f"{ODDS_API_BASE}/sports/{sport_key}/odds", {
                         "regions": "us",
@@ -775,11 +784,16 @@ class SportsCog(commands.Cog):
             await ctx.send(f"Unknown sport. Options: {', '.join(SPORT_KEYS)}")
             return
 
+        enabled = _enabled_sports(eco)
+        if sport_filter and sport_filter not in enabled:
+            await ctx.send(f"⚠️ **{sport_filter}** is currently disabled. An admin can re-enable it in the web admin panel.")
+            return
         cutoff = now + datetime.timedelta(days=14)
         events = [
             ev for ev in eco["sports_events"].values()
             if not ev["settled"]
             and now < _parse_dt(ev["commence_time"]) <= cutoff
+            and ev["sport"] in enabled
             and (not sport_filter or ev["sport"] == sport_filter)
         ]
         events.sort(key=lambda e: e["commence_time"])
@@ -868,11 +882,16 @@ class SportsCog(commands.Cog):
         now = datetime.datetime.now(datetime.timezone.utc)
 
         event = eco["sports_events"].get(game_id)
-        if event and event.get("sport") in MONEYLINE_ONLY and market_key != "h2h":
-            await ctx.send(f"UFC/MMA only supports moneyline (`ml`) bets — pick `home` or `away` fighter.")
-            return
         if not event or event["settled"]:
             await ctx.send(f"Game **#{game_id}** not found. Check `!odds`.")
+            return
+
+        if event.get("sport") not in _enabled_sports(eco):
+            await ctx.send(f"❌ Betting on **{event.get('sport', 'that sport')}** is currently disabled.")
+            return
+
+        if event.get("sport") in MONEYLINE_ONLY and market_key != "h2h":
+            await ctx.send("UFC/MMA only supports moneyline (`ml`) bets — pick `home` or `away` fighter.")
             return
 
         if _parse_dt(event["commence_time"]) <= now:
