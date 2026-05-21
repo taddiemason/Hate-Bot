@@ -918,7 +918,22 @@ class StocksCog(commands.Cog):
                 )
             lines.append(f"  _Expected daily revenue: **{property_daily_total:,} coins/day**_")
         lines.append(f"\n**Total Portfolio Value: {total_value:,.0f} coins**")
-        await ctx.send("\n".join(lines))
+        message = "\n".join(lines)
+        if len(message) <= 2000:
+            await ctx.send(message)
+        else:
+            chunks = []
+            current = ""
+            for line in lines:
+                if len(current) + len(line) + 1 > 2000:
+                    chunks.append(current)
+                    current = line
+                else:
+                    current = (current + "\n" + line) if current else line
+            if current:
+                chunks.append(current)
+            for chunk in chunks:
+                await ctx.send(chunk)
 
 
     @commands.command(name="stockalert")
